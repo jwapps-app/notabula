@@ -487,10 +487,17 @@ export default function NoteEditor({
 
   if (!editor) return <div className="pane pane-editor" />
 
-  const dateLine = new Date(note.updated_at).toLocaleString(undefined, {
+  const createdLine = new Date(note.created_at).toLocaleDateString(undefined, {
+    dateStyle: 'long',
+  })
+  const editedLine = new Date(note.updated_at).toLocaleString(undefined, {
     dateStyle: 'long',
     timeStyle: 'short',
   })
+  // Show the creation date, plus "Edited …" only once the note has actually
+  // been changed after creation (a fresh note shows just its origin date).
+  const wasEdited =
+    new Date(note.updated_at).getTime() - new Date(note.created_at).getTime() > 60_000
 
   // Locked + not yet viewed → lock screen, like iOS. Only the title shows.
   if (isVeiled) {
@@ -763,7 +770,10 @@ export default function NoteEditor({
         </span>
       </div>
       <div className="editor-scroll">
-        <div className="editor-meta">{dateLine}</div>
+        <div className="editor-meta">
+          Created {createdLine}
+          {wasEdited && <> · Edited {editedLine}</>}
+        </div>
         <EditorContent editor={editor} className="tiptap-wrapper" />
       </div>
       {tagSuggest && !readOnly && (
