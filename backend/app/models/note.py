@@ -1,0 +1,64 @@
+"""Notes — the core entity.
+
+Bodies are stored as ProseMirror JSON (the TipTap document model) plus a
+plain-text extraction used for list previews now and full-text search in
+Phase 2. Deletes are soft (deleted_at) to power a "Recently Deleted"
+folder like iOS Notes.
+"""
+
+import uuid
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from sqlalchemy.orm import relationship
+
+from app.database import Base
+from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.tag import Tag, note_tags
+from app.models.types import GUID, JSONDoc
+
+
+class Note(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "notes"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    folder_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Derived from the first line of the body, like Apple Notes — there is
+    # no separate title field in the editor.
+    title: Mapped[str] = mapped_column(String(400), default="", nullable=False)
+    # ProseMirror document JSON.
+    body: Mapped[dict | None] = mapped_column(JSONDoc(), nullable=True)
+    # Plain-text extraction: list previews now, tsvector source in Phase 2.
+    body_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Locked notes: the client encrypts the body with a passphrase the
+    # server never sees; body/body_text are cleared while locked (so search,
+    # tags, and previews reveal nothing) and cipher_body holds the blob.
+    # The title stays in plaintext, like iOS locked notes.
+    locked: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    cipher_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optimistic-concurrency counter: updates must send the version they were
+    # based on; stale writes are rejected (409) instead of clobbering.
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Soft delete → "Recently Deleted"; purged after 30 days.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    # Synced from #hashtags in body_text on every save. Query-only: rows in
+    # note_tags are written directly by services/tags.py (async engines can't
+    # lazy-load), so this exists for filter expressions like Note.tags.any().
+    tags: Mapped[list[Tag]] = relationship(
+        secondary=note_tags, lazy="raise", viewonly=True
+    )

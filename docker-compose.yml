@@ -1,0 +1,55 @@
+# Self-hosted stack: API + PostgreSQL + Nginx.
+# Run `docker compose up -d` after editing backend/.env.
+# Host ports chosen to avoid other local projects: nginx 8200, db 5433.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-notesapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notesapp}
+      POSTGRES_DB: ${POSTGRES_DB:-notesapp}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # host access for local backend dev / psql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notesapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    command: ["./entrypoint.sh"]
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override the host-oriented URL from .env with the in-network name.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-notesapp}:${POSTGRES_PASSWORD:-notesapp}@db:5432/${POSTGRES_DB:-notesapp}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Uploaded note attachments persist across rebuilds.
+      - media-data:/app/media
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Built PWA static files (run `npm run build` in ./pwa to refresh).
+      - ./pwa/dist:/usr/share/nginx/html:ro
+      # Uploaded attachments — served directly (read-only), no API hop.
+      - media-data:/srv/media:ro
+    ports:
+      - "8200:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  media-data:

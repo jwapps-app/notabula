@@ -1,0 +1,1734 @@
+/* iOS-feel design system: system font stack, iOS grays, amber accent.
+   Not a pixel clone of Apple Notes — but it should feel native. */
+
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+
+  /* iOS system palette (light) */
+  --bg: #ffffff;
+  --bg-grouped: #f2f2f7;      /* iOS systemGroupedBackground */
+  --bg-sidebar: #f5f5f0;
+  --separator: rgba(60, 60, 67, 0.13);
+  --label: #1c1c1e;
+  --label-secondary: rgba(60, 60, 67, 0.6);
+  --label-tertiary: rgba(60, 60, 67, 0.3);
+  --accent: #c7920b;          /* notes-gold, distinct from Apple's */
+  --accent-soft: rgba(199, 146, 11, 0.14);
+  --destructive: #ff3b30;     /* iOS systemRed */
+  --pinned-bg: #fbf6e8;
+
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --bg-grouped: #000000;
+    --bg-sidebar: #232326;
+    --separator: rgba(84, 84, 88, 0.6);
+    --label: #ffffff;
+    --label-secondary: rgba(235, 235, 245, 0.6);
+    --label-tertiary: rgba(235, 235, 245, 0.3);
+    --accent: #e6b800;
+    --accent-soft: rgba(230, 184, 0, 0.18);
+    --pinned-bg: #2a2618;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--label);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+button {
+  font-family: var(--font);
+}
+
+/* ---------- Auth pages ---------- */
+
+.auth-page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-grouped);
+  padding: 24px;
+  padding-top: max(24px, env(safe-area-inset-top));
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg);
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.auth-card h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.auth-card .tagline {
+  margin: 0 0 24px;
+  color: var(--label-secondary);
+  font-size: 15px;
+}
+
+.auth-card label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label-secondary);
+  margin: 14px 0 6px;
+}
+
+.auth-card input {
+  width: 100%;
+  font-size: 17px;
+  font-family: var(--font);
+  padding: 11px 12px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-grouped);
+  color: var(--label);
+  outline: none;
+}
+
+.auth-card input:focus {
+  border-color: var(--accent);
+}
+
+.auth-error {
+  margin-top: 14px;
+  color: var(--destructive);
+  font-size: 14px;
+}
+
+.btn-primary {
+  width: 100%;
+  margin-top: 22px;
+  padding: 13px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+}
+
+.auth-switch {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 15px;
+  color: var(--label-secondary);
+}
+
+.auth-switch a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* ---------- Settings ---------- */
+
+.settings-page {
+  min-height: 100%;
+  background: var(--bg-grouped);
+  padding: 24px;
+  padding-top: max(24px, env(safe-area-inset-top));
+  display: flex;
+  justify-content: center;
+}
+
+.settings-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg);
+  border-radius: 16px;
+  padding: 24px 28px 32px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  align-self: flex-start;
+}
+
+.settings-header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.settings-header h1 {
+  font-size: 24px;
+  margin: 0;
+}
+
+.back-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.settings-card section {
+  border-top: 1px solid var(--separator);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
+.settings-card section:first-of-type {
+  border-top: none;
+}
+
+.settings-card h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.settings-card .muted {
+  color: var(--label-secondary);
+  font-size: 14px;
+}
+
+.settings-card label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label-secondary);
+  margin: 14px 0 6px;
+}
+
+.settings-card input {
+  width: 100%;
+  font-size: 17px;
+  font-family: var(--font);
+  padding: 11px 12px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-grouped);
+  color: var(--label);
+  outline: none;
+}
+
+.settings-card input:focus {
+  border-color: var(--accent);
+}
+
+.settings-card .btn-primary {
+  margin-top: 14px;
+}
+
+.import-btn {
+  display: block;
+  text-align: center;
+  cursor: pointer;
+}
+
+.btn-danger {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--destructive);
+  background: transparent;
+  border: 1px solid var(--destructive);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.totp-qr {
+  display: block;
+  margin: 12px auto;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
+}
+
+.totp-secret {
+  text-align: center;
+  font-size: 13px;
+  color: var(--label-secondary);
+  word-break: break-all;
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.recovery-codes code {
+  background: var(--bg-grouped);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 15px;
+}
+
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.user-row:last-child {
+  border-bottom: none;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-info .muted {
+  font-size: 13px;
+  color: var(--label-secondary);
+}
+
+.user-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.user-actions button {
+  border: none;
+  background: var(--bg-grouped);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.user-actions button.destructive {
+  color: var(--destructive);
+}
+
+.add-user-form h3 {
+  font-size: 14px;
+  margin: 18px 0 0;
+}
+
+.admin-notice {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.footer-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  text-decoration: none;
+  line-height: 1;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+.footer-link:hover {
+  opacity: 0.75;
+}
+
+/* ---------- Offline banner ---------- */
+
+.offline-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  text-align: center;
+  font-size: 12.5px;
+  padding: 7px 14px;
+  padding-bottom: max(7px, env(safe-area-inset-bottom));
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ---------- Three-pane shell ---------- */
+
+.shell {
+  display: grid;
+  grid-template-columns: 250px 320px 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pane-sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--separator);
+}
+
+.pane-list {
+  background: var(--bg-grouped);
+  border-right: 1px solid var(--separator);
+}
+
+.pane-editor {
+  background: var(--bg);
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  min-height: 48px;
+}
+
+.pane-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover {
+  background: var(--accent-soft);
+}
+
+.icon-btn.destructive {
+  color: var(--destructive);
+}
+
+.back-btn {
+  display: none;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 17px;
+  cursor: pointer;
+  padding: 4px 8px 4px 0;
+}
+
+/* ---------- Sidebar (folders) ---------- */
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius);
+  font-size: 15px;
+  color: var(--label);
+  cursor: pointer;
+  text-align: left;
+}
+
+.folder-row .glyph {
+  color: var(--accent);
+  width: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-row .name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-row .count {
+  color: var(--label-secondary);
+  font-size: 14px;
+}
+
+.folder-row.selected {
+  background: var(--accent-soft);
+}
+
+.folder-row .row-action {
+  display: none;
+  border: none;
+  background: transparent;
+  color: var(--label-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  align-items: center;
+}
+
+.folder-row .row-action:hover {
+  color: var(--label);
+}
+
+.folder-row:hover .row-action {
+  display: inline-flex;
+}
+
+.sidebar-section {
+  margin: 14px 4px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--label-secondary);
+}
+
+.section-toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.section-toggle .caret {
+  display: inline-block;
+  width: 12px;
+  color: var(--label-tertiary);
+}
+
+.section-toggle .muted-count {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.sidebar-footer {
+  /* Slim bar: the icons set the height, padding stays minimal. The
+   * bottom inset is only what the device's home indicator demands. */
+  padding: 3px 14px;
+  padding-bottom: max(3px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--label-secondary);
+}
+
+/* Both footer glyphs center on the same axis — a 24px icon next to
+ * baseline-aligned text used to sit visibly lower. */
+.sidebar-footer .footer-actions {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sidebar-footer button {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.sidebar-footer .footer-actions svg {
+  display: block;
+}
+
+.sidebar-footer button:hover {
+  opacity: 0.75;
+}
+
+/* ---------- Note list ---------- */
+
+.search-box {
+  margin: 0 10px 8px;
+  position: relative;
+}
+
+.search-box input {
+  width: 100%;
+  font-size: 15px;
+  font-family: var(--font);
+  padding: 8px 12px 8px 30px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(118, 118, 128, 0.12);
+  color: var(--label);
+  outline: none;
+}
+
+.search-box::before {
+  content: '⌕';
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-54%);
+  color: var(--label-secondary);
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.list-sort {
+  padding: 0 12px 8px;
+  font-size: 12.5px;
+  color: var(--label-secondary);
+}
+
+.list-sort select {
+  font-family: var(--font);
+  font-size: 12.5px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.pane-scroll.selecting .note-card {
+  border: 1.5px solid transparent;
+}
+
+.pane-scroll.selecting .note-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pane-scroll.selecting .note-actions {
+  display: none !important;
+}
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--separator);
+  background: var(--bg);
+  font-size: 14px;
+}
+
+.bulk-bar select {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font);
+  font-size: 14px;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  background: var(--bg-grouped);
+  color: var(--label);
+  padding: 6px;
+}
+
+.bulk-bar .bulk-tag {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bulk-bar .bulk-delete {
+  border: none;
+  background: transparent;
+  color: var(--destructive);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.bulk-bar button:disabled,
+.bulk-bar select:disabled {
+  opacity: 0.4;
+}
+
+.note-group-label {
+  margin: 10px 8px 6px;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Tag view: the header title doubles as the rename control. */
+.title-rename {
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title-rename svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Icon buttons: the SVG centers itself, no baseline math. */
+.icon-btn svg,
+.tb-btn svg,
+.note-actions button svg,
+.swipe-actions button svg,
+.row-action svg {
+  display: block;
+}
+
+.note-actions button,
+.swipe-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.note-title .note-lock svg,
+.note-sub .shared-by svg {
+  vertical-align: -1px;
+}
+
+.note-card-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+}
+
+.swipe-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 132px;
+  display: flex;
+}
+
+.swipe-actions button {
+  flex: 1;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: #fff;
+}
+
+.swipe-actions .swipe-pin {
+  background: var(--accent);
+}
+
+.swipe-actions .swipe-delete {
+  background: var(--destructive);
+}
+
+.note-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--label);
+  position: relative;
+  touch-action: pan-y;
+}
+
+.note-card.pinned {
+  background: var(--pinned-bg);
+}
+
+.note-card.selected {
+  background: var(--accent-soft);
+}
+
+.note-card .note-title {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0 0 2px;
+}
+
+.note-card .note-sub {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.note-card .note-sub .preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-card .note-sub .shared-by {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.note-card .note-actions {
+  display: none;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  gap: 2px;
+  background: inherit;
+}
+
+/* Hover reveal needs a real pointer somewhere: any-hover/any-pointer so
+ * an iPad with a trackpad qualifies, while pure touch screens (where
+ * "hover" sticks to the last tap) rely on swipe instead. */
+@media (any-hover: hover) and (any-pointer: fine) {
+  .note-card:hover .note-actions {
+    display: flex;
+  }
+}
+
+.note-actions button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  color: var(--label-secondary);
+}
+
+.note-actions button:hover {
+  color: var(--label);
+}
+
+.shortcut-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.shortcut-actions a.btn-primary {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.shortcut-steps {
+  margin: 8px 0 12px;
+  padding-left: 20px;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.shortcut-steps code {
+  background: var(--bg-grouped);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* --- Restore from Backup (Settings) --- */
+
+.restore-files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.restore-files .import-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Locked note: lock screen shown until "View Note" --- */
+
+.lock-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.lock-screen-glyph {
+  font-size: 44px;
+}
+
+.lock-screen h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.lock-screen p {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: 14px;
+}
+
+.lock-screen-view {
+  margin-top: 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 10px 22px;
+  cursor: pointer;
+}
+
+/* --- #tag autocomplete dropdown --- */
+
+.tag-suggest {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  max-width: 240px;
+  background: var(--bg);
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.tag-suggest button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--accent);
+  padding: 8px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag-suggest button:hover,
+.tag-suggest button:first-child {
+  background: var(--accent-soft);
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--label-secondary);
+  font-size: 15px;
+  margin-top: 40%;
+}
+
+/* ---------- Editor ---------- */
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap; /* two lines when needed — every option always visible */
+  gap: 2px;
+  row-gap: 4px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--separator);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+}
+
+.editor-toolbar .spacer {
+  flex: 1;
+}
+
+.tb-btn {
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  min-width: 32px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 15px;
+  color: var(--label);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tb-btn:hover {
+  background: var(--bg-grouped);
+}
+
+.tb-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.folder-select {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--label-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 6px;
+  max-width: 160px;
+  cursor: pointer;
+}
+
+.folder-select:hover {
+  background: var(--bg-grouped);
+}
+
+.editor-meta {
+  text-align: center;
+  font-size: 12px;
+  color: var(--label-secondary);
+  padding: 8px 0 0;
+}
+
+.editor-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 max(22px, env(safe-area-inset-left)) 40px;
+}
+
+/* TipTap content — Apple-Notes-like typography. */
+.tiptap {
+  outline: none;
+  min-height: 60vh;
+  font-size: 17px;
+  line-height: 1.45;
+  caret-color: var(--accent);
+}
+
+/* First line acts as the title, like Apple Notes. */
+.tiptap > :first-child {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  margin-top: 14px;
+}
+
+.tiptap p {
+  margin: 0.35em 0;
+}
+
+.tiptap h1 {
+  font-size: 24px;
+  margin: 0.6em 0 0.25em;
+}
+
+.tiptap h2 {
+  font-size: 20px;
+  margin: 0.6em 0 0.25em;
+}
+
+.tiptap h3 {
+  font-size: 17px;
+  margin: 0.6em 0 0.25em;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 26px;
+  margin: 0.35em 0;
+}
+
+.tiptap mark {
+  background: rgba(255, 214, 10, 0.45); /* highlighter yellow */
+  border-radius: 2px;
+  color: inherit;
+  padding: 0 1px;
+}
+
+/* #hashtags — display-only decoration; tags are parsed server-side. */
+.tiptap .hashtag {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tiptap img {
+  /* Scale to the pane on phones, but never dominate a desktop window;
+     click opens the full-size original. */
+  max-width: min(100%, 440px);
+  max-height: 420px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+  margin: 0.5em 0;
+  cursor: zoom-in;
+}
+
+.tiptap a.note-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.tiptap img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+}
+
+/* Rich link preview card (decoration, not saved content). */
+.tiptap .link-card {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  max-width: 480px;
+  margin: 8px 0;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-grouped);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tiptap .link-card:hover {
+  border-color: var(--accent);
+}
+
+.tiptap .link-card-img {
+  width: 96px;
+  min-width: 96px;
+  object-fit: cover;
+  background: var(--separator);
+}
+
+.tiptap .link-card-body {
+  padding: 10px 12px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: center;
+}
+
+.tiptap .link-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--label);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tiptap .link-card-desc {
+  font-size: 12.5px;
+  color: var(--label-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tiptap .link-card-site {
+  font-size: 11.5px;
+  color: var(--label-secondary);
+  text-transform: lowercase;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid var(--separator);
+  margin: 0.5em 0;
+  padding-left: 12px;
+  color: var(--label-secondary);
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--label-tertiary);
+  pointer-events: none;
+  height: 0;
+}
+
+/* Checklists — round iOS-style checkboxes. */
+.tiptap ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 4px;
+}
+
+.tiptap ul[data-type='taskList'] li {
+  display: flex;
+  gap: 9px;
+  margin: 0.25em 0;
+}
+
+.tiptap ul[data-type='taskList'] li > label {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.tiptap ul[data-type='taskList'] li > div {
+  flex: 1;
+}
+
+.tiptap ul[data-type='taskList'] input[type='checkbox'] {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--label-tertiary);
+  border-radius: 50%;
+  cursor: pointer;
+  position: relative;
+  vertical-align: middle;
+}
+
+.tiptap ul[data-type='taskList'] input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tiptap ul[data-type='taskList'] input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 2.5px;
+  width: 4px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.tiptap ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: var(--label-tertiary);
+  text-decoration: line-through;
+}
+
+/* ---------- Share dialog ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: 20px;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg);
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-card h2 {
+  font-size: 17px;
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.share-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--separator);
+}
+
+.share-remove {
+  border: none;
+  background: var(--bg-grouped);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--destructive);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.share-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.share-add input {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-family: var(--font);
+  padding: 9px 11px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-grouped);
+  color: var(--label);
+  outline: none;
+}
+
+.share-add select {
+  font-family: var(--font);
+  font-size: 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-grouped);
+  color: var(--label);
+  padding: 0 6px;
+}
+
+.share-add .btn-primary {
+  width: auto;
+  margin: 0;
+  padding: 9px 16px;
+  font-size: 15px;
+}
+
+.share-hint {
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+
+.modal-card .muted {
+  color: var(--label-secondary);
+  font-size: 14px;
+}
+
+.modal-done {
+  width: 100%;
+  margin-top: 16px;
+  padding: 11px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-grouped);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+/* ---------- Public link section + public page ---------- */
+
+.link-section {
+  margin-top: 18px;
+  border-top: 1px solid var(--separator);
+  padding-top: 12px;
+}
+
+.link-section h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.link-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-grouped);
+  border-radius: 8px;
+  padding: 9px 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--label-secondary);
+}
+
+.link-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: stretch;
+}
+
+.link-actions .link-btn {
+  width: auto;
+  margin: 0;
+  padding: 9px 16px;
+  font-size: 15px;
+}
+
+.link-actions select {
+  font-family: var(--font);
+  font-size: 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-grouped);
+  color: var(--label);
+  padding: 0 6px;
+}
+
+.public-page {
+  min-height: 100%;
+  background: var(--bg-grouped);
+  display: flex;
+  justify-content: center;
+  padding: 0;
+}
+
+.public-note {
+  width: 100%;
+  max-width: 720px;
+  background: var(--bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.public-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px 10px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--separator);
+}
+
+.public-brand {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--accent);
+}
+
+.public-status {
+  font-size: 12px;
+  color: var(--label-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.guest-name-btn {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 20px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.public-status .dot {
+  color: var(--label-tertiary);
+}
+
+.guest-name-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  background: var(--accent-soft);
+  font-size: 14px;
+  color: var(--label);
+}
+
+.guest-name-bar input {
+  flex: 1;
+  min-width: 120px;
+  font-family: var(--font);
+  font-size: 15px;
+  padding: 7px 10px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--label);
+  outline: none;
+}
+
+.guest-name-save {
+  width: auto;
+  margin: 0;
+  padding: 7px 16px;
+  font-size: 14px;
+}
+
+.guest-name-skip {
+  border: none;
+  background: transparent;
+  color: var(--label-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.public-scroll {
+  padding: 0 max(22px, env(safe-area-inset-left)) 60px;
+}
+
+.public-gone {
+  padding: 60px 24px;
+  text-align: center;
+  min-height: auto;
+}
+
+.public-gone h1 {
+  font-size: 20px;
+}
+
+.public-gone .muted {
+  color: var(--label-secondary);
+}
+
+/* ---------- Edit history (redline) ---------- */
+
+.history-card {
+  max-width: 520px;
+}
+
+.history-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 4px;
+  border: none;
+  border-bottom: 1px solid var(--separator);
+  background: transparent;
+  font-family: var(--font);
+  font-size: 15px;
+  color: var(--label);
+  cursor: pointer;
+  text-align: left;
+}
+
+.history-row:hover {
+  background: var(--bg-grouped);
+}
+
+.history-row .muted {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.redline {
+  white-space: pre-wrap;
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--bg-grouped);
+  border-radius: 10px;
+  padding: 12px 14px;
+  max-height: 45vh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.redline ins,
+.redline-key ins {
+  background: rgba(52, 199, 89, 0.22); /* iOS systemGreen wash */
+  text-decoration: none;
+  border-radius: 3px;
+}
+
+.redline del,
+.redline-key del {
+  background: rgba(255, 59, 48, 0.16); /* iOS systemRed wash */
+  color: var(--label-secondary);
+  border-radius: 3px;
+}
+
+.redline-key {
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.history-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.history-actions .modal-done {
+  flex: 1;
+}
+
+.history-restore {
+  flex: 1;
+  margin-top: 16px;
+  padding: 11px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+
+.share-user-select {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font);
+  font-size: 15px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-grouped);
+  color: var(--label);
+  padding: 9px 8px;
+}
+
+/* ---------- Print: just the open note, clean ---------- */
+
+@media print {
+  .pane-sidebar,
+  .pane-list,
+  .editor-toolbar,
+  .offline-banner,
+  .modal-overlay,
+  .back-btn {
+    display: none !important;
+  }
+
+  .shell {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .pane-editor,
+  .editor-scroll {
+    display: block;
+    overflow: visible;
+    height: auto;
+    padding: 0;
+  }
+
+  .tiptap {
+    min-height: 0;
+    font-size: 12pt;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+}
+
+/* ---------- Responsive: iOS-style drill-in on narrow screens ---------- */
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .shell .pane {
+    display: none;
+  }
+
+  .shell[data-mobile-pane='folders'] .pane-sidebar,
+  .shell[data-mobile-pane='list'] .pane-list,
+  .shell[data-mobile-pane='editor'] .pane-editor {
+    display: flex;
+  }
+
+  .back-btn {
+    display: inline-flex;
+  }
+
+  .folder-row .row-action {
+    display: inline-flex;
+  }
+
+  /* On touch screens the row actions come from the swipe gesture. */
+  .note-card .note-actions {
+    display: none;
+  }
+
+  /* Bigger formatting controls for fingers — trimmed padding and gap
+   * keep the same buttons per row (no fourth line). */
+  .editor-toolbar {
+    gap: 1px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .tb-btn {
+    height: 37px;
+    min-width: 35px;
+    padding: 0 4px;
+    font-size: 17px;
+  }
+
+  .tb-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+}

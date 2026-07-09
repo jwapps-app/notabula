@@ -1,0 +1,143 @@
+# Notes app — Portainer stack (Synology / standalone Docker).
+#
+# Deploy via Portainer → Stacks → Add stack → Web editor → paste this file.
+# Set the environment variables listed at the bottom in Portainer's
+# "Environment variables" section — there is no .env file in a Portainer stack.
+#
+# Pulls prebuilt images from GHCR (private) — add ghcr.io as a Registry in
+# Portainer first (Registries → Add → Custom: ghcr.io, user + read:packages
+# PAT). If you already added it for another project, you're done.
+# The NAS never builds anything.
+#
+# Ingress: web (nginx) is published on <NAS-IP>:${WEB_PORT}. Point your
+# Cloudflare Tunnel / reverse proxy at HTTP → <NAS-IP>:${WEB_PORT}. TLS is
+# terminated at the edge — HTTPS is required for the PWA to install on iOS.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-notesapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-notesapp}
+    volumes:
+      - ${DATA_DIR:-/volume1/docker/notabula}/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notesapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ${IMAGE_PREFIX:-ghcr.io/jwapps-app/notabula}-api:${IMAGE_TAG:-latest}
+    # Always fetch the current image on deploy — a cached stale :latest can
+    # never poison a redeploy.
+    pull_policy: always
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    command: ["./entrypoint.sh"]
+    environment:
+      # Discrete parts (not a DSN): the app URL-encodes them itself, so the
+      # password may contain any character (@, :, /, %, …).
+      DB_HOST: db
+      DB_USER: ${POSTGRES_USER:-notesapp}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-notesapp}
+      SECRET_KEY: ${SECRET_KEY}
+      APP_NAME: ${APP_NAME:-Notabula}
+      APP_URL: ${APP_URL:-https://notes.example.com}
+      ENVIRONMENT: production
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-90}
+      PURGE_AFTER_DAYS: ${PURGE_AFTER_DAYS:-30}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+    volumes:
+      # Named volume (not a /volume1 bind mount): it inherits the image's
+      # appuser ownership so the non-root API can write uploads.
+      - media-data:/app/media
+    # Health status is informational (visible in Portainer). Nothing gates
+    # on it, so a slow boot can never fail the whole deploy.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=4).status==200 else 1)"
+      interval: 30s
+      timeout: 6s
+      retries: 5
+      start_period: 180s
+    depends_on:
+      - db
+
+  web:
+    image: ${IMAGE_PREFIX:-ghcr.io/jwapps-app/notabula}-web:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 64m
+    volumes:
+      - media-data:/srv/media:ro
+    ports:
+      - "${WEB_PORT:-8210}:80"
+    depends_on:
+      - api
+
+  # Nightly backup into ${BACKUP_DIR}, keeping the last 14 days. Backs up the
+  # Postgres dump AND the uploaded attachments — a DB-only backup would
+  # restore with every image in every note broken.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-notesapp}
+      POSTGRES_DB: ${POSTGRES_DB:-notesapp}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ${BACKUP_DIR:-/volume1/Backup/notabula}:/backup
+      - media-data:/media:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S)
+          if pg_dump -h db -U $$POSTGRES_USER -d $$POSTGRES_DB -F c -f /backup/db-$$ts.dump &&
+             tar -czf /backup/media-$$ts.tar.gz -C /media .; then
+            echo "backup $$ts done"
+            find /backup -name '*.dump' -mtime +14 -delete
+            find /backup -name '*.tar.gz' -mtime +14 -delete
+            sleep 86400
+          else
+            echo "backup failed (db not ready?); retrying in 5m"
+            rm -f /backup/db-$$ts.dump /backup/media-$$ts.tar.gz
+            sleep 300
+          fi
+        done
+    depends_on:
+      - db
+
+volumes:
+  media-data:
+
+# ---------------------------------------------------------------------------
+# Environment variables to set in Portainer (Stacks → Environment variables):
+#
+#   POSTGRES_PASSWORD   (required) strong password for Postgres
+#   SECRET_KEY          (required) python -c "import secrets; print(secrets.token_urlsafe(48))"
+#   WEB_PORT            host port for the app          (default 8210)
+#   APP_URL             public URL, display only       (default https://notes.example.com)
+#   DATA_DIR            host dir for Postgres data     (default /volume1/docker/notabula)
+#   BACKUP_DIR          host dir for nightly backups   (default /volume1/Backup/notabula)
+#   IMAGE_PREFIX        (default ghcr.io/jwapps-app/notabula)
+#   IMAGE_TAG           (default latest)
+# ---------------------------------------------------------------------------
