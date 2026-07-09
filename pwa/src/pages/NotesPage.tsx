@@ -69,12 +69,21 @@ function toListItem(note: NoteOut): NoteListItem {
   }
 }
 
-function sortListItems(items: NoteListItem[]): NoteListItem[] {
-  return items.sort(
-    (a, b) =>
-      Number(b.pinned) - Number(a.pinned) ||
-      b.updated_at.localeCompare(a.updated_at),
-  )
+/** Rebuild the owner's tag list from cached note text — the offline
+ * stand-in for GET /tags. */
+function deriveTagsFromCache(notes: NoteOut[]): TagOut[] {
+  const counts = new Map<string, number>()
+  for (const n of notes) {
+    if (n.role !== 'owner') continue
+    const seen = new Set<string>()
+    for (const m of (n.body_text || '').matchAll(/#([\w-]*[^\W\d_][\w-]*)/g)) {
+      seen.add(m[1].toLowerCase())
+    }
+    for (const t of seen) counts.set(t, (counts.get(t) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, note_count]) => ({ id: name, name, note_count }))
 }
 
 const NEEDS_CONNECTION =
@@ -125,24 +134,22 @@ export default function NotesPage() {
       const cachedFolders = await getCachedFolders()
       const cachedNotes = await getCachedNotes()
       setFolders(cachedFolders)
-      // Derive the tag list from cached note text.
-      const counts = new Map<string, number>()
-      for (const n of cachedNotes) {
-        if (n.role !== 'owner') continue
-        const seen = new Set<string>()
-        for (const m of (n.body_text || '').matchAll(/#([\w-]*[^\W\d_][\w-]*)/g)) {
-          seen.add(m[1].toLowerCase())
-        }
-        for (const t of seen) counts.set(t, (counts.get(t) ?? 0) + 1)
-      }
-      setTags(
-        [...counts.entries()]
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([name, note_count]) => ({ id: name, name, note_count })),
-      )
+      setTags(deriveTagsFromCache(cachedNotes))
       setSharedFolders([]) // folder shares need the server's owner names
       setHasSharedNotes(cachedNotes.some((n) => n.role !== 'owner'))
       return cachedFolders
+    }
+  }, [])
+
+  // Lighter than refreshFolders: only the tag list changes when you type
+  // #hashtags, so a content save refreshes tags alone (not folders, shares,
+  // and the shared-notes probe).
+  const refreshTags = useCallback(async () => {
+    try {
+      setTags(await api.listTags())
+    } catch (err) {
+      if (!(err instanceof OfflineError)) throw err
+      setTags(deriveTagsFromCache(await getCachedNotes()))
     }
   }, [])
 
@@ -207,7 +214,7 @@ export default function NotesPage() {
             return false // trash isn't cached for offline use
         }
       })
-      setNotes(sortListItems(filtered.map(toListItem)))
+      setNotes(filtered.map(toListItem))
     }
   }, [])
 
@@ -226,25 +233,23 @@ export default function NotesPage() {
       const cached = await getCachedNotes()
       const needle = q.toLowerCase()
       setNotes(
-        sortListItems(
-          cached
-            .filter(
-              (n) =>
-                n.title.toLowerCase().includes(needle) ||
-                (n.body_text || '').toLowerCase().includes(needle),
-            )
-            .map(toListItem),
-        ),
+        cached
+          .filter(
+            (n) =>
+              n.title.toLowerCase().includes(needle) ||
+              (n.body_text || '').toLowerCase().includes(needle),
+          )
+          .map(toListItem),
       )
     }
   }, [query, refreshNotes])
 
-  // Pull the full offline cache up to date (one bulk request).
+  // Pull the full offline cache up to date. Folders are cached by
+  // refreshFolders (always called just before hydrate), so this only needs
+  // the full note bodies.
   const hydrate = useCallback(async () => {
     try {
-      const [full, folderList] = await Promise.all([api.syncNotes(), api.listFolders()])
-      await hydrateNotes(full)
-      await cacheFolders(folderList)
+      await hydrateNotes(await api.syncNotes())
     } catch {
       // offline — the existing cache stands
     }
@@ -604,11 +609,13 @@ export default function NotesPage() {
           : cur,
       )
       void cacheNote(saved)
-      // Sidebar too: typing #hashtags changes the tag list live.
+      // Sidebar tags update live as you type #hashtags — but folder counts,
+      // shares, and the shared-notes probe can't change from a content edit,
+      // so refresh tags alone rather than the whole sidebar.
       void refreshList()
-      void refreshFolders()
+      void refreshTags()
     },
-    [refreshList, refreshFolders],
+    [refreshList, refreshTags],
   )
 
   // Client-side sort (pinned always float); persisted preference.

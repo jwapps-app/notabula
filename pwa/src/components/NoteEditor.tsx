@@ -101,20 +101,17 @@ function deriveTitle(editor: Editor): string {
 }
 
 function ToolbarButton({
-  editor,
   label,
   title,
   isActive,
   onRun,
 }: {
-  editor: Editor
   label: ReactNode
   title: string
   isActive: () => boolean
   onRun: () => void
 }) {
-  // Re-render on selection change is handled by the parent's editor state.
-  void editor
+  // The parent's setTick re-render drives isActive re-evaluation.
   return (
     <button
       type="button"
@@ -546,84 +543,72 @@ export default function NoteEditor({
         {!readOnly && (
           <>
             <ToolbarButton
-              editor={editor}
               label="B"
               title="Bold"
               isActive={() => editor.isActive('bold')}
               onRun={() => editor.chain().focus().toggleBold().run()}
             />
             <ToolbarButton
-              editor={editor}
               label="I"
               title="Italic"
               isActive={() => editor.isActive('italic')}
               onRun={() => editor.chain().focus().toggleItalic().run()}
             />
             <ToolbarButton
-              editor={editor}
               label="U"
               title="Underline"
               isActive={() => editor.isActive('underline')}
               onRun={() => editor.chain().focus().toggleUnderline().run()}
             />
             <ToolbarButton
-              editor={editor}
               label="S"
               title="Strikethrough"
               isActive={() => editor.isActive('strike')}
               onRun={() => editor.chain().focus().toggleStrike().run()}
             />
             <ToolbarButton
-              editor={editor}
               label={<Icon name="pen" size={16} />}
               title="Highlight"
               isActive={() => editor.isActive('highlight')}
               onRun={() => editor.chain().focus().toggleHighlight().run()}
             />
             <ToolbarButton
-              editor={editor}
               label="H1"
               title="Heading"
               isActive={() => editor.isActive('heading', { level: 1 })}
               onRun={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
             />
             <ToolbarButton
-              editor={editor}
               label="H2"
               title="Subheading"
               isActive={() => editor.isActive('heading', { level: 2 })}
               onRun={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
             />
             <ToolbarButton
-              editor={editor}
               label="•"
               title="Bulleted list"
               isActive={() => editor.isActive('bulletList')}
               onRun={() => editor.chain().focus().toggleBulletList().run()}
             />
             <ToolbarButton
-              editor={editor}
               label="1."
               title="Numbered list"
               isActive={() => editor.isActive('orderedList')}
               onRun={() => editor.chain().focus().toggleOrderedList().run()}
             />
             <ToolbarButton
-              editor={editor}
               label={<Icon name="check-square" size={16} />}
               title="Checklist"
               isActive={() => editor.isActive('taskList')}
               onRun={() => editor.chain().focus().toggleTaskList().run()}
             />
             <ToolbarButton
-              editor={editor}
               label="❝"
               title="Block quote"
               isActive={() => editor.isActive('blockquote')}
               onRun={() => editor.chain().focus().toggleBlockquote().run()}
             />
             <ToolbarButton
-              editor={editor}
               label={<Icon name="checks-down" size={16} />}
               title="Move checked items to bottom"
               isActive={() => false}

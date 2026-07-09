@@ -25,11 +25,27 @@ def extract_tag_names(text: str) -> set[str]:
     return {m.group(1).lower() for m in _TAG_RE.finditer(text or "")}
 
 
-async def sync_note_tags(db: AsyncSession, note: Note, owner_id: uuid.UUID) -> None:
+async def sweep_orphan_tags(db: AsyncSession, owner_id: uuid.UUID) -> None:
+    """Drop the owner's tags that no longer appear on any note."""
+    await db.execute(
+        delete(Tag).where(
+            Tag.owner_id == owner_id,
+            ~Tag.id.in_(select(note_tags.c.tag_id)),
+        )
+    )
+
+
+async def sync_note_tags(
+    db: AsyncSession, note: Note, owner_id: uuid.UUID, *, sweep_orphans: bool = True
+) -> None:
     """Make the note's tag links match the #hashtags in body_text.
 
     Works on the note_tags table directly (not the ORM collection) because
     collection assignment would lazy-load, which async engines forbid.
+
+    Pass sweep_orphans=False inside bulk loops (import, tag rename) and call
+    sweep_orphan_tags once at the end — otherwise the orphan cleanup runs
+    once per note for no gain.
     """
     names = sorted(extract_tag_names(note.body_text))[:MAX_TAGS_PER_NOTE]
 

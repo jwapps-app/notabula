@@ -16,7 +16,7 @@ from sqlalchemy.orm import attributes
 from app.core.deps import DB, CurrentUser
 from app.models import Note, Tag, note_tags
 from app.services.revisions import record_revision
-from app.services.tags import sync_note_tags
+from app.services.tags import sweep_orphan_tags, sync_note_tags
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -129,8 +129,10 @@ async def rename_tag(
             note.title = new_title
         if body_changed or text_changed:
             note.version += 1
-            await sync_note_tags(db, note, user.id)
+            await sync_note_tags(db, note, user.id, sweep_orphans=False)
             await record_revision(db, note, user.id)
             updated += 1
 
+    if updated:
+        await sweep_orphan_tags(db, user.id)
     return {"updated": updated}

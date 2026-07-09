@@ -11,12 +11,13 @@ import re
 
 from fastapi import APIRouter, Query
 from sqlalchemy import or_, select, text
+from sqlalchemy.orm import defer
 
 from app.core.deps import DB, CurrentUser
 from app.models import Note, User
 from app.routers.notes import _list_item
 from app.schemas.note import NoteListItem
-from app.services.access import share_maps
+from app.services.access import resolved_role, share_maps
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -50,6 +51,7 @@ async def search_notes(
             return []
         result = await db.execute(
             select(Note, User.name)
+            .options(defer(Note.body), defer(Note.cipher_body))
             .join(User, User.id == Note.owner_id)
             .where(
                 accessible,
@@ -67,6 +69,7 @@ async def search_notes(
         like = f"%{q}%"
         result = await db.execute(
             select(Note, User.name)
+            .options(defer(Note.body), defer(Note.cipher_body))
             .join(User, User.id == Note.owner_id)
             .where(
                 accessible,
@@ -82,6 +85,6 @@ async def search_notes(
         if note.owner_id == user.id:
             items.append(_list_item(note))
         else:
-            role = note_roles.get(note.id) or folder_roles.get(note.folder_id)
+            role = resolved_role(note, user.id, note_roles, folder_roles)
             items.append(_list_item(note, role=role, owner_name=owner_name))
     return items

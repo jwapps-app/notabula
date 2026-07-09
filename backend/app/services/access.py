@@ -12,11 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import FolderShare, Note, NoteShare, User
 
-_ROLE_RANK = {"viewer": 1, "editor": 2, "owner": 3}
 
-
-def role_at_least(role: str | None, minimum: str) -> bool:
-    return role is not None and _ROLE_RANK[role] >= _ROLE_RANK[minimum]
+def resolved_role(
+    note: Note,
+    user_id: uuid.UUID,
+    note_roles: dict[uuid.UUID, str],
+    folder_roles: dict[uuid.UUID, str],
+) -> str | None:
+    """Effective role from prefetched share maps (see share_maps): owner
+    wins, then a direct note share, then a share on the note's folder."""
+    if note.owner_id == user_id:
+        return "owner"
+    return note_roles.get(note.id) or folder_roles.get(note.folder_id)
 
 
 async def note_role(db: AsyncSession, user: User, note: Note) -> str | None:
@@ -29,9 +36,7 @@ async def note_role(db: AsyncSession, user: User, note: Note) -> str | None:
 
     direct = (
         await db.execute(
-            select(NoteShare.role).where(
-                NoteShare.note_id == note.id, NoteShare.user_id == user.id
-            )
+            select(NoteShare.role).where(NoteShare.note_id == note.id, NoteShare.user_id == user.id)
         )
     ).scalar_one_or_none()
     if direct is not None:
@@ -55,9 +60,7 @@ async def share_maps(
     note_roles = dict(
         (
             await db.execute(
-                select(NoteShare.note_id, NoteShare.role).where(
-                    NoteShare.user_id == user.id
-                )
+                select(NoteShare.note_id, NoteShare.role).where(NoteShare.user_id == user.id)
             )
         ).all()
     )

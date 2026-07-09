@@ -139,7 +139,7 @@ async def bulk_import(payload: ImportRequest, admin: AdminUser, db: DB) -> dict:
     body_text as usual, so inline #hashtags become real tags."""
     from app.models import Note
     from app.services.revisions import record_revision
-    from app.services.tags import sync_note_tags
+    from app.services.tags import sweep_orphan_tags, sync_note_tags
 
     folder = (
         await db.execute(
@@ -166,9 +166,10 @@ async def bulk_import(payload: ImportRequest, admin: AdminUser, db: DB) -> dict:
         )
         db.add(note)
         await db.flush()
-        await sync_note_tags(db, note, admin.id)
+        await sync_note_tags(db, note, admin.id, sweep_orphans=False)
         await record_revision(db, note, admin.id)
 
+    await sweep_orphan_tags(db, admin.id)
     return {"imported": len(payload.notes), "folder_id": str(folder.id)}
 
 

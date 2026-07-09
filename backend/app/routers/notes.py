@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import Text, and_, cast, or_, select
+from sqlalchemy.orm import defer
 
 from app.core.deps import DB, CurrentUser
 from app.core.security import hash_token
@@ -34,9 +35,9 @@ from app.schemas.note import (
     RevisionDetail,
     RevisionListItem,
 )
-from app.services.access import note_role, share_maps
+from app.services.access import note_role, resolved_role, share_maps
 from app.services.revisions import record_revision
-from app.services.tags import sync_note_tags
+from app.services.tags import sweep_orphan_tags, sync_note_tags
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -49,13 +50,11 @@ def _preview(note: Note) -> str:
         return "Locked"
     text = note.body_text or ""
     if note.title and text.startswith(note.title):
-        text = text[len(note.title):]
+        text = text[len(note.title) :]
     return text.strip().replace("\n", " ")[:PREVIEW_LEN]
 
 
-def _list_item(
-    note: Note, role: str = "owner", owner_name: str | None = None
-) -> NoteListItem:
+def _list_item(note: Note, role: str = "owner", owner_name: str | None = None) -> NoteListItem:
     item = NoteListItem.model_validate(note)
     item.preview = _preview(note)
     item.role = role
@@ -81,14 +80,10 @@ def _note_out(note: Note, role: str) -> NoteOut:
 async def _require_unshared(db, note: Note) -> None:
     """Locking demands exclusivity: no user shares, no public links."""
     shared = (
-        await db.execute(
-            select(NoteShare.id).where(NoteShare.note_id == note.id).limit(1)
-        )
+        await db.execute(select(NoteShare.id).where(NoteShare.note_id == note.id).limit(1))
     ).scalar_one_or_none()
     linked = (
-        await db.execute(
-            select(NoteLink.id).where(NoteLink.note_id == note.id).limit(1)
-        )
+        await db.execute(select(NoteLink.id).where(NoteLink.note_id == note.id).limit(1))
     ).scalar_one_or_none()
     if shared is not None or linked is not None:
         raise HTTPException(
@@ -129,7 +124,11 @@ async def list_notes(
         if folder is not None and folder.owner_id != user.id:
             return await _list_shared_folder_notes(db, user, folder)
 
-    query = select(Note).where(Note.owner_id == user.id)
+    query = (
+        select(Note)
+        .options(defer(Note.body), defer(Note.cipher_body))
+        .where(Note.owner_id == user.id)
+    )
     if deleted:
         query = query.where(Note.deleted_at.is_not(None))
     elif tag is not None:
@@ -151,7 +150,11 @@ async def _list_smart_view(db, user, view: str) -> list[NoteListItem]:
     """Automatic collections computed from note content — no filing needed.
     Owner-scoped: smart views search my notes, like search does."""
     body_text_col = cast(Note.body, Text)
-    query = select(Note).where(Note.owner_id == user.id, Note.deleted_at.is_(None))
+    query = (
+        select(Note)
+        .options(defer(Note.body), defer(Note.cipher_body))
+        .where(Note.owner_id == user.id, Note.deleted_at.is_(None))
+    )
     if view == "media":
         # ProseMirror image nodes; both JSON spacings for dialect safety.
         query = query.where(
@@ -182,9 +185,7 @@ async def _list_smart_view(db, user, view: str) -> list[NoteListItem]:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Unknown view",
         )
-    result = await db.execute(
-        query.order_by(Note.pinned.desc(), Note.updated_at.desc())
-    )
+    result = await db.execute(query.order_by(Note.pinned.desc(), Note.updated_at.desc()))
     return [_list_item(n) for n in result.scalars()]
 
 
@@ -196,6 +197,7 @@ async def _list_shared_notes(db, user) -> list[NoteListItem]:
         return []
     result = await db.execute(
         select(Note, User.name)
+        .options(defer(Note.body), defer(Note.cipher_body))
         .join(User, User.id == Note.owner_id)
         .where(
             Note.deleted_at.is_(None),
@@ -209,7 +211,7 @@ async def _list_shared_notes(db, user) -> list[NoteListItem]:
     )
     items = []
     for note, owner_name in result.all():
-        role = note_roles.get(note.id) or folder_roles.get(note.folder_id)
+        role = resolved_role(note, user.id, note_roles, folder_roles)
         items.append(_list_item(note, role=role, owner_name=owner_name))
     return items
 
@@ -228,6 +230,7 @@ async def _list_shared_folder_notes(db, user, folder: Folder) -> list[NoteListIt
     owner = await db.get(User, folder.owner_id)
     result = await db.execute(
         select(Note)
+        .options(defer(Note.body), defer(Note.cipher_body))
         .where(
             Note.folder_id == folder.id,
             Note.deleted_at.is_(None),
@@ -271,9 +274,7 @@ async def import_notes(payload: NotesImportRequest, user: CurrentUser, db: DB) -
     """
     folder_cache: dict[str, Folder] = {
         f.name: f
-        for f in (
-            await db.execute(select(Folder).where(Folder.owner_id == user.id))
-        ).scalars()
+        for f in (await db.execute(select(Folder).where(Folder.owner_id == user.id))).scalars()
     }
 
     async def folder_for(name: str) -> Folder:
@@ -302,9 +303,10 @@ async def import_notes(payload: NotesImportRequest, user: CurrentUser, db: DB) -
         db.add(note)
         await db.flush()
         if not note.locked:
-            await sync_note_tags(db, note, user.id)
+            await sync_note_tags(db, note, user.id, sweep_orphans=False)
             await record_revision(db, note, user.id)
 
+    await sweep_orphan_tags(db, user.id)
     return {"imported": len(payload.notes)}
 
 
@@ -326,25 +328,19 @@ async def capture_note(
     bearer = request.headers.get("authorization", "")
     raw_token = token or (bearer[7:] if bearer.lower().startswith("bearer ") else "")
     if not raw_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     session = (
         await db.execute(
             select(SessionModel).where(SessionModel.token_hash == hash_token(raw_token))
         )
     ).scalar_one_or_none()
-    if session is None or session.expires_at.replace(
-        tzinfo=timezone.utc
-    ) < datetime.now(timezone.utc):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
-        )
+    if session is None or session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(
+        timezone.utc
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
     user = await db.get(User, session.user_id)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     body_bytes = await request.body()
     text = ""
@@ -376,11 +372,7 @@ async def capture_note(
         "content": [
             {
                 "type": "paragraph",
-                **(
-                    {"content": [{"type": "text", "text": line}]}
-                    if line.strip()
-                    else {}
-                ),
+                **({"content": [{"type": "text", "text": line}]} if line.strip() else {}),
             }
             for line in lines
         ],
@@ -388,10 +380,10 @@ async def capture_note(
     title = next((ln.strip() for ln in lines if ln.strip()), "")[:400]
 
     folder = (
-        await db.execute(
-            select(Folder).where(Folder.owner_id == user.id, Folder.is_default)
-        )
-    ).scalars().first()
+        (await db.execute(select(Folder).where(Folder.owner_id == user.id, Folder.is_default)))
+        .scalars()
+        .first()
+    )
     if folder is None:  # extremely defensive: every account gets one at signup
         folder = Folder(owner_id=user.id, name="Notes", is_default=True)
         db.add(folder)
@@ -457,13 +449,11 @@ async def sync_notes(user: CurrentUser, db: DB) -> list[NoteOut]:
     )
     out = []
     for note, owner_name in result.all():
-        if note.owner_id == user.id:
-            out.append(_note_out(note, "owner"))
-        else:
-            role = note_roles.get(note.id) or folder_roles.get(note.folder_id)
-            item = _note_out(note, role)
+        role = resolved_role(note, user.id, note_roles, folder_roles)
+        item = _note_out(note, role)
+        if note.owner_id != user.id:
             item.owner_name = owner_name
-            out.append(item)
+        out.append(item)
     return out
 
 
@@ -500,9 +490,7 @@ async def update_note(
             )
         folder = await db.get(Folder, payload.folder_id)
         if folder is None or folder.owner_id != user.id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
         note.folder_id = payload.folder_id
 
     # --- Lock state machine (owner only) --------------------------------
@@ -608,9 +596,7 @@ async def delete_note(
 
 
 @router.get("/{note_id}/revisions", response_model=list[RevisionListItem])
-async def list_revisions(
-    note_id: uuid.UUID, user: CurrentUser, db: DB
-) -> list[RevisionListItem]:
+async def list_revisions(note_id: uuid.UUID, user: CurrentUser, db: DB) -> list[RevisionListItem]:
     """Edit history, newest first. Anyone with access may read it."""
     await _accessible_note(db, user, note_id)
     result = await db.execute(
@@ -644,9 +630,7 @@ async def get_revision(
         )
     ).one_or_none()
     if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Revision not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Revision not found")
     rev, name = row
     prev = (
         await db.execute(
