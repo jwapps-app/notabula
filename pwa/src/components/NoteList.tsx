@@ -507,16 +507,25 @@ export default function NoteList({
         {notes.length === 0 && (
           <div className="empty-state">{searching ? 'No Results' : 'No Notes'}</div>
         )}
-        {!isDeletedView && pinned.length > 0 && (
+        {viewMode === 'gallery' ? (
+          // One continuous grid — a separate Pinned section would strand a
+          // near-empty first row. Pinned notes sort first and keep their
+          // pin marker, so the grouping stays visible without the gap.
+          renderNotes(notes)
+        ) : (
           <>
-            <div className="note-group-label">
-              <Icon name="pin" size={13} filled /> Pinned
-            </div>
-            {renderNotes(pinned)}
-            {others.length > 0 && <div className="note-group-label">Notes</div>}
+            {!isDeletedView && pinned.length > 0 && (
+              <>
+                <div className="note-group-label">
+                  <Icon name="pin" size={13} filled /> Pinned
+                </div>
+                {renderNotes(pinned)}
+                {others.length > 0 && <div className="note-group-label">Notes</div>}
+              </>
+            )}
+            {renderNotes(others)}
           </>
         )}
-        {renderNotes(others)}
       </div>
       {selectMode && (
         <div className="bulk-bar">
