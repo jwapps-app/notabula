@@ -60,6 +60,11 @@ services:
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-90}
       PURGE_AFTER_DAYS: ${PURGE_AFTER_DAYS:-30}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      # Native iOS push via the self-hosted push-relay. Unset = no APNs
+      # (Web Push for the PWA needs no configuration either way).
+      PUSH_RELAY_URL: ${PUSH_RELAY_URL:-}
+      PUSH_RELAY_API_KEY: ${PUSH_RELAY_API_KEY:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-app.jwapps.notabula}
     volumes:
       # Named volume (not a /volume1 bind mount): it inherits the image's
       # appuser ownership so the non-root API can write uploads.
@@ -140,4 +145,7 @@ volumes:
 #   BACKUP_DIR          host dir for nightly backups   (default /volume1/Backup/notabula)
 #   IMAGE_PREFIX        (default ghcr.io/jwapps-app/notabula)
 #   IMAGE_TAG           (default latest)
+#   PUSH_RELAY_URL      APNs relay for the native iOS app (e.g. http://<NAS-IP>:8088)
+#   PUSH_RELAY_API_KEY  per-app key minted on the relay
+#   APNS_BUNDLE_ID      (default app.jwapps.notabula)
 # ---------------------------------------------------------------------------
