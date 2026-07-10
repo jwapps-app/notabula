@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     # VAPID keypair is auto-generated and persisted under MEDIA_ROOT.
     push_relay_url: str | None = Field(default=None, alias="PUSH_RELAY_URL")
     push_relay_api_key: str | None = Field(default=None, alias="PUSH_RELAY_API_KEY")
-    apns_bundle_id: str = Field(default="app.jwapps.notabula", alias="APNS_BUNDLE_ID")
+    apns_bundle_id: str = Field(default="com.jworthington.notabula", alias="APNS_BUNDLE_ID")
     vapid_subject: str = Field(default="", alias="VAPID_SUBJECT")
 
     # --- Media / file storage ------------------------------------------
