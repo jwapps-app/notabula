@@ -244,3 +244,43 @@ async def test_capture_via_query_token_and_raw_text(auth, client=None):
         headers={"Content-Type": "text/plain"},
     )
     assert bad.status_code == 401
+
+
+async def test_gallery_thumb_tracks_first_image(auth):
+    """notes.thumb follows the body's first image through every write path."""
+    client, alice, _ = auth
+    folders = (await client.get("/api/v1/folders", headers=alice)).json()
+    fid = folders[0]["id"]
+
+    img_body = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Pic"}]},
+            {"type": "image", "attrs": {"src": "/media/attachments/a.jpg"}},
+        ],
+    }
+    resp = await client.post(
+        "/api/v1/notes",
+        headers=alice,
+        json={"folder_id": fid, "title": "Pic", "body": img_body, "body_text": "Pic"},
+    )
+    note = resp.json()
+
+    listing = (await client.get(f"/api/v1/notes?folder_id={fid}", headers=alice)).json()
+    mine = next(n for n in listing if n["id"] == note["id"])
+    assert mine["thumb"] == "/media/attachments/a.jpg"
+
+    # Removing the image clears the thumbnail.
+    resp = await client.patch(
+        f"/api/v1/notes/{note['id']}",
+        headers=alice,
+        json={
+            "base_version": note["version"],
+            "body": {"type": "doc", "content": [{"type": "paragraph"}]},
+            "body_text": "",
+        },
+    )
+    assert resp.status_code == 200
+    listing = (await client.get(f"/api/v1/notes?folder_id={fid}", headers=alice)).json()
+    mine = next(n for n in listing if n["id"] == note["id"])
+    assert mine["thumb"] is None

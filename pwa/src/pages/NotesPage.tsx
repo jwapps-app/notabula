@@ -49,6 +49,21 @@ async function unlockForViewing(note: NoteOut): Promise<NoteOut | null> {
 
 type MobilePane = 'folders' | 'list' | 'editor'
 
+/** First image URL in a cached ProseMirror body — the offline stand-in for
+ * the server's notes.thumb column. */
+function firstImageSrc(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null
+  const node = body as { type?: string; attrs?: { src?: string }; content?: unknown[] }
+  if (node.type === 'image' && typeof node.attrs?.src === 'string' && node.attrs.src) {
+    return node.attrs.src
+  }
+  for (const child of node.content ?? []) {
+    const found = firstImageSrc(child)
+    if (found) return found
+  }
+  return null
+}
+
 /** Shape a cached full note into a list row (mirrors the server's preview). */
 function toListItem(note: NoteOut): NoteListItem {
   let text = note.body_text || ''
@@ -58,6 +73,7 @@ function toListItem(note: NoteOut): NoteListItem {
     folder_id: note.folder_id,
     title: note.title,
     preview: note.locked ? 'Locked' : text.trim().replace(/\n/g, ' ').slice(0, 120),
+    thumb: note.locked ? null : firstImageSrc(note.body),
     pinned: note.pinned,
     locked: note.locked,
     version: note.version,
@@ -103,6 +119,9 @@ export default function NotesPage() {
   const [offline, setOffline] = useState(false)
   const [sortBy, setSortBy] = useState<'updated' | 'created' | 'title'>(
     () => (localStorage.getItem('noteSort') as 'updated' | 'created' | 'title') || 'updated',
+  )
+  const [viewMode, setViewMode] = useState<'list' | 'gallery'>(
+    () => (localStorage.getItem('noteView') as 'list' | 'gallery') || 'list',
   )
   const selectionRef = useRef<FolderSelection | null>(null)
   selectionRef.current = selection
@@ -636,6 +655,11 @@ export default function NotesPage() {
     localStorage.setItem('noteSort', s)
   }
 
+  const changeViewMode = (v: 'list' | 'gallery') => {
+    setViewMode(v)
+    localStorage.setItem('noteView', v)
+  }
+
   // On phones, never strand the user on an empty editor pane.
   const effectivePane = mobilePane === 'editor' && !openNote ? 'list' : mobilePane
 
@@ -677,6 +701,8 @@ export default function NotesPage() {
         folders={folders}
         sortBy={sortBy}
         onSortChange={changeSort}
+        viewMode={viewMode}
+        onViewModeChange={changeViewMode}
         onBulkMove={(ids, fid) => void handleBulkMove(ids, fid)}
         onBulkTag={(ids) => void handleBulkTag(ids)}
         onRenameTitle={

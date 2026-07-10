@@ -171,6 +171,8 @@ export interface NoteListItem {
   folder_id: string
   title: string
   preview: string
+  /** Gallery-view thumbnail: first image URL in the body, if any. */
+  thumb: string | null
   pinned: boolean
   locked: boolean
   version: number

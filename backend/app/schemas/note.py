@@ -39,6 +39,8 @@ class NoteListItem(BaseModel):
     folder_id: uuid.UUID
     title: str
     preview: str = ""
+    # Gallery-view thumbnail: first image URL in the body, if any.
+    thumb: str | None = None
     pinned: bool
     locked: bool = False
     version: int

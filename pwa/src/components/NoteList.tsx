@@ -7,6 +7,7 @@ import Icon from './Icon'
 const SWIPE_OPEN = -132
 
 type SortBy = 'updated' | 'created' | 'title'
+type ViewMode = 'list' | 'gallery'
 
 interface Props {
   title: string
@@ -20,6 +21,8 @@ interface Props {
   folders: FolderOut[]
   sortBy: SortBy
   onSortChange: (s: SortBy) => void
+  viewMode: ViewMode
+  onViewModeChange: (v: ViewMode) => void
   onBulkMove: (ids: string[], folderId: string) => void
   onBulkTag: (ids: string[]) => void
   onBulkDelete: (ids: string[]) => void
@@ -34,6 +37,104 @@ interface Props {
   onDelete: (note: NoteListItem) => void
   onRestore: (note: NoteListItem) => void
   onBack: () => void
+}
+
+/** Pin/delete (or restore/purge in the trash) — shared by both views. */
+function CardActions({
+  note,
+  isDeletedView,
+  onTogglePin,
+  onDelete,
+  onRestore,
+}: {
+  note: NoteListItem
+  isDeletedView: boolean
+  onTogglePin: (n: NoteListItem) => void
+  onDelete: (n: NoteListItem) => void
+  onRestore: (n: NoteListItem) => void
+}) {
+  return (
+    <div className="note-actions" onClick={(e) => e.stopPropagation()}>
+      {isDeletedView ? (
+        <>
+          <button title="Restore" onClick={() => onRestore(note)}>
+            <Icon name="restore" size={15} />
+          </button>
+          <button title="Delete permanently" onClick={() => onDelete(note)}>
+            <Icon name="x" size={15} />
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            title={note.pinned ? 'Unpin' : 'Pin'}
+            onClick={() => onTogglePin(note)}
+          >
+            <Icon name="pin" size={15} filled={note.pinned} />
+          </button>
+          <button title="Delete" onClick={() => onDelete(note)}>
+            <Icon name="trash" size={15} />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Gallery view: a visual card — image thumbnail when the note has one,
+ * a mini text preview otherwise, like iOS Notes' gallery. */
+function GalleryCard({
+  note,
+  selected,
+  isDeletedView,
+  onSelect,
+  onTogglePin,
+  onDelete,
+  onRestore,
+}: {
+  note: NoteListItem
+  selected: boolean
+  isDeletedView: boolean
+  onSelect: (id: string) => void
+  onTogglePin: (n: NoteListItem) => void
+  onDelete: (n: NoteListItem) => void
+  onRestore: (n: NoteListItem) => void
+}) {
+  return (
+    <div
+      className={`gallery-card${selected ? ' selected' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(note.id)}
+      onKeyDown={(e) => e.key === 'Enter' && onSelect(note.id)}
+    >
+      <div className="gallery-thumb">
+        {note.locked ? (
+          <Icon name="lock" size={26} strokeWidth={1.5} />
+        ) : note.thumb ? (
+          <img src={note.thumb} alt="" loading="lazy" draggable={false} />
+        ) : (
+          <div className="gallery-text">{note.preview || ' '}</div>
+        )}
+      </div>
+      <div className="gallery-meta">
+        <p className="gallery-title">
+          {note.pinned && !isDeletedView && <Icon name="pin" size={11} filled />}
+          {note.title || 'New Note'}
+        </p>
+        <p className="gallery-date">{formatNoteDate(note.updated_at)}</p>
+      </div>
+      {note.role === 'owner' && (
+        <CardActions
+          note={note}
+          isDeletedView={isDeletedView}
+          onTogglePin={onTogglePin}
+          onDelete={onDelete}
+          onRestore={onRestore}
+        />
+      )}
+    </div>
+  )
 }
 
 function NoteCard({
@@ -219,30 +320,13 @@ function NoteCard({
           <span className="preview">{note.preview || 'No additional text'}</span>
         </div>
         {note.role === 'owner' && (
-          <div className="note-actions" onClick={(e) => e.stopPropagation()}>
-            {isDeletedView ? (
-              <>
-                <button title="Restore" onClick={() => onRestore(note)}>
-                  <Icon name="restore" size={15} />
-                </button>
-                <button title="Delete permanently" onClick={() => onDelete(note)}>
-                  <Icon name="x" size={15} />
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  title={note.pinned ? 'Unpin' : 'Pin'}
-                  onClick={() => onTogglePin(note)}
-                >
-                  <Icon name="pin" size={15} filled={note.pinned} />
-                </button>
-                <button title="Delete" onClick={() => onDelete(note)}>
-                  <Icon name="trash" size={15} />
-                </button>
-              </>
-            )}
-          </div>
+          <CardActions
+            note={note}
+            isDeletedView={isDeletedView}
+            onTogglePin={onTogglePin}
+            onDelete={onDelete}
+            onRestore={onRestore}
+          />
         )}
       </div>
     </div>
@@ -259,6 +343,8 @@ export default function NoteList({
   folders,
   sortBy,
   onSortChange,
+  viewMode,
+  onViewModeChange,
   onBulkMove,
   onBulkTag,
   onBulkDelete,
@@ -315,6 +401,41 @@ export default function NoteList({
     else onSelect(id)
   }
 
+  // One section of notes, in whichever view is active. Gallery cards skip
+  // the swipe machinery — tap opens, hover/bulk-select handle actions.
+  const renderNotes = (items: NoteListItem[]) =>
+    viewMode === 'gallery' ? (
+      <div className="note-grid">
+        {items.map((n) => (
+          <GalleryCard
+            key={n.id}
+            note={n}
+            selected={selectMode ? picked.has(n.id) : n.id === selectedId}
+            isDeletedView={isDeletedView}
+            onSelect={handleSelect}
+            onTogglePin={onTogglePin}
+            onDelete={onDelete}
+            onRestore={onRestore}
+          />
+        ))}
+      </div>
+    ) : (
+      items.map((n) => (
+        <NoteCard
+          key={n.id}
+          note={n}
+          selected={selectMode ? picked.has(n.id) : n.id === selectedId}
+          isDeletedView={isDeletedView}
+          swiped={swipedId === n.id}
+          onSwipe={setSwipedId}
+          onSelect={handleSelect}
+          onTogglePin={onTogglePin}
+          onDelete={onDelete}
+          onRestore={onRestore}
+        />
+      ))
+    )
+
   return (
     <div className="pane pane-list">
       <div className="pane-header">
@@ -365,6 +486,22 @@ export default function NoteList({
             <option value="title">Title</option>
           </select>
         </label>
+        <span className="view-toggle">
+          <button
+            className={viewMode === 'list' ? 'active' : ''}
+            title="List view"
+            onClick={() => onViewModeChange('list')}
+          >
+            <Icon name="rows" size={15} />
+          </button>
+          <button
+            className={viewMode === 'gallery' ? 'active' : ''}
+            title="Gallery view"
+            onClick={() => onViewModeChange('gallery')}
+          >
+            <Icon name="grid" size={15} />
+          </button>
+        </span>
       </div>
       <div className={`pane-scroll${selectMode ? ' selecting' : ''}`}>
         {notes.length === 0 && (
@@ -375,37 +512,11 @@ export default function NoteList({
             <div className="note-group-label">
               <Icon name="pin" size={13} filled /> Pinned
             </div>
-            {pinned.map((n) => (
-              <NoteCard
-                key={n.id}
-                note={n}
-                selected={selectMode ? picked.has(n.id) : n.id === selectedId}
-                isDeletedView={isDeletedView}
-                swiped={swipedId === n.id}
-                onSwipe={setSwipedId}
-                onSelect={handleSelect}
-                onTogglePin={onTogglePin}
-                onDelete={onDelete}
-                onRestore={onRestore}
-              />
-            ))}
+            {renderNotes(pinned)}
             {others.length > 0 && <div className="note-group-label">Notes</div>}
           </>
         )}
-        {others.map((n) => (
-          <NoteCard
-            key={n.id}
-            note={n}
-            selected={selectMode ? picked.has(n.id) : n.id === selectedId}
-            isDeletedView={isDeletedView}
-            swiped={swipedId === n.id}
-            onSwipe={setSwipedId}
-            onSelect={handleSelect}
-            onTogglePin={onTogglePin}
-            onDelete={onDelete}
-            onRestore={onRestore}
-          />
-        ))}
+        {renderNotes(others)}
       </div>
       {selectMode && (
         <div className="bulk-bar">
