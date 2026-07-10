@@ -391,6 +391,20 @@ button {
   overflow: hidden;
 }
 
+/* Gallery mode on desktop/iPad: same-size tiles, more of them — the list
+ * pane scales with the window (≈3 columns at laptop widths, 4-5 on big
+ * monitors). With no note open there's nothing to reserve space for, so
+ * the grid floods the whole content area, macOS-Notes-style. */
+@media (min-width: 901px) {
+  .shell[data-view='gallery'] {
+    grid-template-columns: 250px clamp(340px, 42vw, 940px) 1fr;
+  }
+
+  .shell[data-view='gallery'][data-note-open='false'] {
+    grid-template-columns: 250px 1fr 0;
+  }
+}
+
 .pane {
   display: flex;
   flex-direction: column;

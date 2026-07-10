@@ -664,7 +664,12 @@ export default function NotesPage() {
   const effectivePane = mobilePane === 'editor' && !openNote ? 'list' : mobilePane
 
   return (
-    <div className="shell" data-mobile-pane={effectivePane}>
+    <div
+      className="shell"
+      data-mobile-pane={effectivePane}
+      data-view={viewMode}
+      data-note-open={openNote ? 'true' : 'false'}
+    >
       {offline && (
         <div className="offline-banner">
           Offline — reading from this device; edits will sync when the server
