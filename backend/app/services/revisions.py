@@ -23,12 +23,17 @@ async def record_revision(
     note: Note,
     editor_id: uuid.UUID | None,
     guest_name: str | None = None,
-) -> None:
+) -> bool:
     """Snapshot the note's current state as the latest revision.
 
     editor_id None = an anonymous secret-link visitor; guest_name is the
     name they gave. Two different guests never fold into one session even
     within the window — the identity is (editor_id, guest_name).
+
+    Returns True when this save STARTED a new editing session (a new
+    revision row) rather than folding into the current one — the signal
+    push notifications key off, so participants get one push per session
+    instead of one per autosave.
     """
     # version is the ordering key everywhere in history — it's strictly
     # increasing per note, unlike DB timestamps (SQLite stores CURRENT_
@@ -54,7 +59,7 @@ async def record_revision(
         latest.title = note.title
         latest.body = note.body
         latest.body_text = note.body_text
-        return
+        return False
 
     db.add(
         NoteRevision(
@@ -79,3 +84,4 @@ async def record_revision(
             ~NoteRevision.id.in_(keep_ids),
         )
     )
+    return True

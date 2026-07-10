@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.core.deps import DB, CurrentUser
+from app.services.notifications import notify_share_created
 from app.core.security import generate_token
 from app.models import Folder, FolderShare, Note, NoteLink, NoteShare, User
 
@@ -103,6 +104,10 @@ async def share_note(
     ).scalar_one_or_none()
     if existing is None:
         db.add(NoteShare(note_id=note.id, user_id=grantee.id, role=payload.role))
+        await notify_share_created(
+            db, grantee_id=grantee.id, granter_name=user.name,
+            what=note.title or "Untitled note",
+        )
     else:
         existing.role = payload.role
     await db.flush()
@@ -152,6 +157,9 @@ async def share_folder(
     ).scalar_one_or_none()
     if existing is None:
         db.add(FolderShare(folder_id=folder.id, user_id=grantee.id, role=payload.role))
+        await notify_share_created(
+            db, grantee_id=grantee.id, granter_name=user.name, what=folder.name,
+        )
     else:
         existing.role = payload.role
     await db.flush()

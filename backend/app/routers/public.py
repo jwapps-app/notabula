@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.core.deps import DB
 from app.models import Note, NoteLink
+from app.services.notifications import notify_guest_edited
 from app.services.revisions import record_revision
 from app.services.tags import sync_note_tags
 
@@ -105,6 +106,8 @@ async def update_public_note(
     note.version += 1
     await db.flush()
     # editor_id=None + the guest's name → "Sue (guest)" in the history.
-    await record_revision(db, note, None, guest_name=guest)
+    new_session = await record_revision(db, note, None, guest_name=guest)
+    if new_session:
+        await notify_guest_edited(db, note, guest_name=guest)
     await db.refresh(note)
     return _public(note, link.role)

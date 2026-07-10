@@ -69,7 +69,18 @@ class Settings(BaseSettings):
                 f"{quote(self.db_password, safe='')}@{host}:{self.db_port}/"
                 f"{quote(self.db_name, safe='')}"
             )
+        if not self.vapid_subject:
+            self.vapid_subject = self.app_url
         return self
+
+    # --- Push notifications ---------------------------------------------
+    # APNs (native iOS app) goes through the self-hosted push-relay; unset
+    # means no native push. Web Push (installed PWA) needs no config: a
+    # VAPID keypair is auto-generated and persisted under MEDIA_ROOT.
+    push_relay_url: str | None = Field(default=None, alias="PUSH_RELAY_URL")
+    push_relay_api_key: str | None = Field(default=None, alias="PUSH_RELAY_API_KEY")
+    apns_bundle_id: str = Field(default="app.jwapps.notabula", alias="APNS_BUNDLE_ID")
+    vapid_subject: str = Field(default="", alias="VAPID_SUBJECT")
 
     # --- Media / file storage ------------------------------------------
     # Where note attachments live (a persisted Docker volume in compose),

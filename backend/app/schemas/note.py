@@ -28,6 +28,9 @@ class NoteUpdate(BaseModel):
     # an already-locked note's content.
     locked: bool | None = None
     cipher_body: str | None = None
+    # Reminder: a datetime sets it, explicit null clears it. Distinguished
+    # from "not sent" via model_fields_set in the handler.
+    remind_at: datetime | None = None
 
 
 class NoteListItem(BaseModel):
@@ -43,6 +46,7 @@ class NoteListItem(BaseModel):
     thumb: str | None = None
     pinned: bool
     locked: bool = False
+    remind_at: datetime | None = None
     version: int
     created_at: datetime
     updated_at: datetime
@@ -81,6 +85,7 @@ class NoteOut(BaseModel):
     pinned: bool
     locked: bool = False
     cipher_body: str | None = None
+    remind_at: datetime | None = None
     version: int
     created_at: datetime
     updated_at: datetime

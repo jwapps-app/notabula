@@ -11,6 +11,7 @@ from app.routers import (
     meta,
     notes,
     public,
+    push,
     search,
     shares,
     tags,
@@ -25,6 +26,7 @@ api_router.include_router(folders.router)
 api_router.include_router(links.router)
 api_router.include_router(notes.router)
 api_router.include_router(public.router)
+api_router.include_router(push.router)
 api_router.include_router(search.router)
 api_router.include_router(shares.router)
 api_router.include_router(tags.router)

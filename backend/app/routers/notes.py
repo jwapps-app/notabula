@@ -36,6 +36,7 @@ from app.schemas.note import (
     RevisionListItem,
 )
 from app.services.access import note_role, resolved_role, share_maps
+from app.services.notifications import notify_note_edited
 from app.services.revisions import record_revision
 from app.services.tags import sweep_orphan_tags, sync_note_tags
 
@@ -559,6 +560,10 @@ async def update_note(
         if payload.pinned is not None:
             note.pinned = payload.pinned
 
+    if "remind_at" in payload.model_fields_set:
+        note.remind_at = payload.remind_at
+        note.reminded_at = None  # re-arm: a new time means a new reminder
+
     note.version += 1
     await db.flush()
     # Content changes go into history — but never while the note is locked
@@ -567,7 +572,13 @@ async def update_note(
     if not note.locked and any(
         v is not None for v in (payload.body, payload.body_text, payload.title)
     ):
-        await record_revision(db, note, user.id)
+        new_session = await record_revision(db, note, user.id)
+        # One push per editing session (not per autosave): tell the other
+        # participants of a shared note that changes landed.
+        if new_session:
+            await notify_note_edited(
+                db, note, editor_id=user.id, editor_name=user.name
+            )
     # updated_at is computed server-side (onupdate=now()); refresh so the
     # response carries the real value instead of an expired attribute.
     await db.refresh(note)

@@ -16,15 +16,19 @@ from app.config import settings
 from app.database import engine
 from app.routers import api_router
 from app.routers import health
+from app.services.notifications import reminder_loop
 from app.services.purge import purge_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Purge expired Recently Deleted notes now and then daily.
+    # Purge expired Recently Deleted notes now and then daily; check for
+    # due note reminders every minute.
     purge_task = asyncio.create_task(purge_loop())
+    reminder_task = asyncio.create_task(reminder_loop())
     yield
     purge_task.cancel()
+    reminder_task.cancel()
     await engine.dispose()
 
 

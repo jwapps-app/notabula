@@ -77,6 +77,14 @@ class Note(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    # Per-note reminder: push the owner at remind_at; reminded_at records
+    # the firing (cleared whenever remind_at is changed).
+    remind_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    reminded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Synced from #hashtags in body_text on every save. Query-only: rows in
     # note_tags are written directly by services/tags.py (async engines can't
