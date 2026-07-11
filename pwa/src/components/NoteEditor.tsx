@@ -143,6 +143,8 @@ export default function NoteEditor({
     'idle' | 'saving' | 'saved' | 'conflict' | 'offline'
   >('idle')
   const [historyOpen, setHistoryOpen] = useState(false)
+  // Reminder popover: datetime-local string while open, null when closed.
+  const [reminderDraft, setReminderDraft] = useState<string | null>(null)
   // Notes created offline live under a local- id until the sync assigns one.
   const isLocal = note.id.startsWith(LOCAL_ID_PREFIX)
   // A locked note without decrypted content shows the lock screen instead
@@ -419,6 +421,34 @@ export default function NoteEditor({
     }
   }
 
+  /** Open the reminder popover pre-filled with the current (or a sane
+   * default) time, as a datetime-local string in the device's zone. */
+  function openReminder() {
+    const base = note.remind_at ? new Date(note.remind_at) : new Date(Date.now() + 3600_000)
+    const local = new Date(base.getTime() - base.getTimezoneOffset() * 60_000)
+    setReminderDraft(local.toISOString().slice(0, 16))
+  }
+
+  async function saveReminder(value: string | null) {
+    setReminderDraft(null)
+    try {
+      const updated = await api.updateNote(note.id, {
+        base_version: versionRef.current,
+        remind_at: value ? new Date(value).toISOString() : null,
+      })
+      versionRef.current = updated.version
+      onSaved(updated)
+    } catch (err) {
+      window.alert(
+        err instanceof OfflineError
+          ? 'Reminders need a connection to the server.'
+          : err instanceof Error
+            ? err.message
+            : 'Could not set the reminder',
+      )
+    }
+  }
+
   async function moveToFolder(folderId: string) {
     try {
       const updated = await api.updateNote(note.id, {
@@ -664,6 +694,20 @@ export default function NoteEditor({
             <Icon name="trash" size={16} />
           </button>
         )}
+        {note.role === 'owner' && !isLocal && !readOnly && (
+          <button
+            type="button"
+            className={`tb-btn${note.remind_at ? ' active' : ''}`}
+            title={note.remind_at ? 'Change or clear reminder' : 'Remind me'}
+            onMouseDown={(e) => {
+              e.preventDefault()
+              if (reminderDraft === null) openReminder()
+              else setReminderDraft(null)
+            }}
+          >
+            <Icon name="bell" size={16} filled={!!note.remind_at} />
+          </button>
+        )}
         {!isLocal && !note.locked && (
           <button
             type="button"
@@ -754,10 +798,43 @@ export default function NoteEditor({
           {status === 'offline' && 'Saved on this device — will sync'}
         </span>
       </div>
+      {reminderDraft !== null && (
+        <div className="reminder-pop">
+          <label>
+            Remind me at{' '}
+            <input
+              type="datetime-local"
+              value={reminderDraft}
+              onChange={(e) => setReminderDraft(e.target.value)}
+            />
+          </label>
+          <button
+            className="btn-primary"
+            onClick={() => void saveReminder(reminderDraft)}
+          >
+            Set
+          </button>
+          {note.remind_at && (
+            <button className="reminder-clear" onClick={() => void saveReminder(null)}>
+              Clear
+            </button>
+          )}
+        </div>
+      )}
       <div className="editor-scroll">
         <div className="editor-meta">
           Created {createdLine}
           {wasEdited && <> · Edited {editedLine}</>}
+          {note.remind_at && (
+            <>
+              {' '}
+              · Reminder{' '}
+              {new Date(note.remind_at).toLocaleString(undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              })}
+            </>
+          )}
         </div>
         <EditorContent editor={editor} className="tiptap-wrapper" />
       </div>

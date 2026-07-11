@@ -180,6 +180,68 @@ function ImportSection() {
   )
 }
 
+function NotificationsSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null) // null = checking
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      const { currentSubscription, pushSupported } = await import('../lib/push')
+      if (!pushSupported()) {
+        setEnabled(false)
+        return
+      }
+      setEnabled((await currentSubscription()) !== null)
+    })()
+  }, [])
+
+  async function toggle() {
+    setBusy(true)
+    setError(null)
+    try {
+      const { disablePush, enablePush } = await import('../lib/push')
+      if (enabled) {
+        await disablePush()
+        setEnabled(false)
+      } else {
+        await enablePush()
+        setEnabled(true)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update notifications')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section>
+      <h2>Notifications</h2>
+      <p className="muted">
+        Get a push when someone shares with you, when a shared note changes,
+        when a guest edits via your link, and when a note's reminder comes
+        due. On iPhone/iPad this needs the app added to the Home Screen
+        (iOS 16.4+); enable it on each device you want notified.
+      </p>
+      <button
+        className="btn-primary"
+        disabled={busy || enabled === null}
+        onClick={() => void toggle()}
+      >
+        {enabled === null
+          ? 'Checking…'
+          : busy
+            ? 'Working…'
+            : enabled
+              ? 'Disable Notifications on This Device'
+              : 'Enable Notifications on This Device'}
+      </button>
+      {error && <div className="auth-error">{error}</div>}
+    </section>
+  )
+}
+
 function ShareShortcutSection() {
   const [copied, setCopied] = useState(false)
 
@@ -628,6 +690,8 @@ export default function SettingsPage() {
 
           {error && <div className="auth-error">{error}</div>}
         </section>
+
+        <NotificationsSection />
 
         <ChangePasswordSection />
 

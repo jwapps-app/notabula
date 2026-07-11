@@ -5,6 +5,7 @@ Generic naming throughout — the brand name appears only via settings.app_name
 """
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,6 +19,10 @@ from app.routers import api_router
 from app.routers import health
 from app.services.notifications import reminder_loop
 from app.services.purge import purge_loop
+
+# uvicorn only configures its own loggers; without this, app loggers
+# (purge sweeps, push delivery, reminders) never reach docker logs.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager

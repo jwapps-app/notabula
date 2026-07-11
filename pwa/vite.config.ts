@@ -8,6 +8,14 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Custom worker (src/sw.ts): same precache + runtime caching as the
+      // generated one, plus Web Push handlers a generated worker can't have.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+      },
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         name: APP_NAME,
@@ -29,42 +37,6 @@ export default defineConfig({
           method: 'GET',
           params: { title: 'title', text: 'text', url: 'url' },
         },
-      },
-      workbox: {
-        // SPA fallback for client-side routes; never for API/media/docs or
-        // real downloadable files (e.g. the signed iOS shortcut — without
-        // this the SW hands back index.html and iOS sees HTML, not the file).
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [
-          /^\/api\//,
-          /^\/media\//,
-          /^\/docs/,
-          /^\/openapi/,
-          /\.shortcut$/,
-        ],
-        runtimeCaching: [
-          {
-            // Note attachments — immutable content-addressed files.
-            urlPattern: /\/media\/.+/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'media',
-              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            },
-          },
-          {
-            // API GETs — try network, fall back to cache when offline so
-            // folders and recent notes still open without a connection.
-            urlPattern: /\/api\/v1\/.+/i,
-            method: 'GET',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 7 },
-            },
-          },
-        ],
       },
     }),
   ],

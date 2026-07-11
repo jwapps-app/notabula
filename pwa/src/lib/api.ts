@@ -175,6 +175,8 @@ export interface NoteListItem {
   thumb: string | null
   pinned: boolean
   locked: boolean
+  /** Per-note reminder (ISO datetime) — pushes the owner when due. */
+  remind_at: string | null
   version: number
   created_at: string
   updated_at: string
@@ -194,6 +196,7 @@ export interface NoteOut {
   pinned: boolean
   locked: boolean
   cipher_body: string | null
+  remind_at: string | null
   version: number
   created_at: string
   updated_at: string
@@ -335,6 +338,19 @@ export const api = {
   linkPreview: (url: string) =>
     request<LinkPreviewOut>(`/links/preview?url=${encodeURIComponent(url)}`),
 
+  // --- Push notifications ---
+  vapidPublicKey: () => request<{ public_key: string }>('/push/vapid-public-key'),
+  subscribePush: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    request<void>('/push/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify(sub),
+    }),
+  unsubscribePush: (endpoint: string) =>
+    request<void>('/push/subscriptions/delete', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint }),
+    }),
+
   listTags: () => request<TagOut[]>('/tags'),
   renameTag: (name: string, newName: string) =>
     request<{ updated: number }>(`/tags/${encodeURIComponent(name)}/rename`, {
@@ -432,6 +448,7 @@ export const api = {
       folder_id?: string
       locked?: boolean
       cipher_body?: string
+      remind_at?: string | null
     },
   ) =>
     request<NoteOut>(`/notes/${id}`, {
