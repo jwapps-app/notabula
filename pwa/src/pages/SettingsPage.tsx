@@ -245,15 +245,23 @@ function NotificationsSection() {
 function ShareShortcutSection() {
   const [copied, setCopied] = useState(false)
 
+  const [error, setError] = useState<string | null>(null)
+
   async function copyLink() {
-    const { getSession } = await import('../lib/session')
-    const token = getSession()?.sessionToken
-    if (!token) return
-    await navigator.clipboard.writeText(
-      `${window.location.origin}/api/v1/notes/capture?token=${token}`,
-    )
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2500)
+    setError(null)
+    try {
+      // Mint a fresh capture-ONLY token (not the session token) so the link
+      // can't be used to sign in or reach anything but the capture endpoint.
+      // Minting replaces any previous one, revoking older copied links.
+      const { token } = await api.mintCaptureToken()
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/api/v1/notes/capture?token=${token}`,
+      )
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create the link')
+    }
   }
 
   return (
@@ -281,11 +289,13 @@ function ShareShortcutSection() {
           2. Get the Shortcut
         </a>
       </div>
+      {error && <div className="auth-error">{error}</div>}
       <p className="muted">
         Then "Share to {APP_NAME}" appears in every share sheet. The link
-        contains this login's key — treat it like a password. It expires with
-        the session (~90 days); if sharing stops working, copy a fresh link
-        and paste it into the Shortcut's setup again (long-press → Edit).
+        carries a capture-only key — it can add notes but can't sign in or
+        read anything, so it's far safer than a login. Copying a new link
+        replaces the old one. To turn capture off entirely, change your
+        password (or ask an admin) — a fresh link is always one tap away.
       </p>
     </section>
   )

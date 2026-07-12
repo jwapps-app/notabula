@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
@@ -35,20 +35,30 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _bearer = HTTPBearer(auto_error=False)
 
 # --- Login throttling -----------------------------------------------------
-# In-memory per-username backoff (we run a single uvicorn worker, so process-
-# local state is authoritative). 5 failures within the window locks the
-# username out until the window drains — slows password AND TOTP guessing.
+# In-memory backoff keyed on (client IP, username) — process-local state is
+# authoritative since we run a single uvicorn worker. 5 failures within the
+# window blocks that IP from that account, slowing password/TOTP guessing.
+# Keying on the IP (not the username alone) means a third party can't lock a
+# victim out of their own account: the victim logging in from a different IP
+# is unaffected.
 _FAILURE_WINDOW_SECONDS = 300
 _FAILURE_LIMIT = 5
-_login_failures: dict[str, list[float]] = {}
+_login_failures: dict[tuple[str, str], list[float]] = {}
 
 
-def _throttle_check(username: str) -> None:
+def _client_ip(request: Request) -> str:
+    # nginx sets X-Real-IP to the real remote address (overwriting any
+    # client-sent value), so it's trustworthy behind our proxy; direct/dev
+    # requests fall back to the socket peer.
+    return request.headers.get("x-real-ip") or (
+        request.client.host if request.client else "unknown"
+    )
+
+
+def _throttle_check(key: tuple[str, str]) -> None:
     now = time.monotonic()
-    attempts = [
-        t for t in _login_failures.get(username, []) if now - t < _FAILURE_WINDOW_SECONDS
-    ]
-    _login_failures[username] = attempts
+    attempts = [t for t in _login_failures.get(key, []) if now - t < _FAILURE_WINDOW_SECONDS]
+    _login_failures[key] = attempts
     if len(attempts) >= _FAILURE_LIMIT:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -56,12 +66,12 @@ def _throttle_check(username: str) -> None:
         )
 
 
-def _throttle_fail(username: str) -> None:
-    _login_failures.setdefault(username, []).append(time.monotonic())
+def _throttle_fail(key: tuple[str, str]) -> None:
+    _login_failures.setdefault(key, []).append(time.monotonic())
 
 
-def _throttle_clear(username: str) -> None:
-    _login_failures.pop(username, None)
+def _throttle_clear(key: tuple[str, str]) -> None:
+    _login_failures.pop(key, None)
 
 
 async def _create_session(db, user: User) -> str:
@@ -110,15 +120,16 @@ async def register(payload: RegisterRequest, db: DB) -> SessionResult:
 
 
 @router.post("/login", response_model=SessionResult)
-async def login(payload: LoginRequest, db: DB) -> SessionResult:
+async def login(payload: LoginRequest, request: Request, db: DB) -> SessionResult:
     result = await db.execute(
         select(User).where(User.username == payload.username.strip().lower())
     )
     user = result.scalar_one_or_none()
     username = payload.username.strip().lower()
-    _throttle_check(username)
+    key = (_client_ip(request), username)
+    _throttle_check(key)
     if user is None or not verify_password(payload.password, user.password_hash):
-        _throttle_fail(username)
+        _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -133,13 +144,13 @@ async def login(payload: LoginRequest, db: DB) -> SessionResult:
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="totp_required"
             )
         if not await totp_service.verify_second_factor(db, user, payload.totp_code):
-            _throttle_fail(username)
+            _throttle_fail(key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid verification code",
             )
 
-    _throttle_clear(username)
+    _throttle_clear(key)
     token = await _create_session(db, user)
     return SessionResult(session_token=token, user=UserOut.model_validate(user))
 
@@ -163,25 +174,52 @@ async def me(user: CurrentUser) -> UserOut:
     return UserOut.model_validate(user)
 
 
+# --- Capture token (revocable, capture-only credential) ------------------
+
+
+@router.get("/capture-token")
+async def capture_token_status(user: CurrentUser) -> dict:
+    """Whether a capture token exists — the plaintext is only ever shown
+    once, at mint time."""
+    return {"exists": user.capture_token_hash is not None}
+
+
+@router.post("/capture-token")
+async def mint_capture_token(user: CurrentUser, db: DB) -> dict:
+    """Mint (or replace) this account's capture token. Returned in
+    plaintext once; only its hash is stored. It authorizes the capture
+    endpoint and nothing else, and can be revoked without touching the
+    account password or sessions."""
+    token = generate_token()
+    user.capture_token_hash = hash_token(token)
+    return {"token": token}
+
+
+@router.delete("/capture-token", status_code=204)
+async def revoke_capture_token(user: CurrentUser, db: DB) -> None:
+    user.capture_token_hash = None
+
+
 class PasswordVerifyRequest(BaseModel):
     password: str
 
 
 @router.post("/verify-password", status_code=204)
 async def verify_password_check(
-    payload: PasswordVerifyRequest, user: CurrentUser
+    payload: PasswordVerifyRequest, request: Request, user: CurrentUser
 ) -> None:
     """Confirm the caller's account password (used before locking a note —
     the same password becomes the encryption passphrase client-side).
     Shares the login throttle so it can't be used as a guessing oracle."""
-    _throttle_check(user.username)
+    key = (_client_ip(request), user.username)
+    _throttle_check(key)
     if not verify_password(payload.password, user.password_hash):
-        _throttle_fail(user.username)
+        _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect password",
         )
-    _throttle_clear(user.username)
+    _throttle_clear(key)
 
 
 @router.post("/password", status_code=204)

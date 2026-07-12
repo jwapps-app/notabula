@@ -33,6 +33,13 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Boolean, default=False, server_default="false", nullable=False
     )
 
+    # Capture token: a revocable, capture-ONLY credential (SHA-256 hash
+    # stored). Powers the iOS-Shortcut "Share to Notabula" link so that
+    # link never has to carry a full session token. Null = none minted.
+    capture_token_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )

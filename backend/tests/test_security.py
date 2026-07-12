@@ -90,3 +90,58 @@ async def test_body_text_size_capped(auth):
     resp = await client.post("/api/v1/notes", headers=alice, json={
         "folder_id": fid, "body_text": "x" * 1_000_001})
     assert resp.status_code == 422
+
+
+async def test_capture_token_lifecycle_and_scope(auth):
+    """Capture token: mint replaces, works for capture only, revoke kills it,
+    and it can't be used as a session (no access to other endpoints)."""
+    client, alice, _ = auth
+    status0 = (await client.get("/api/v1/auth/capture-token", headers=alice)).json()
+    assert status0["exists"] is False
+
+    tok1 = (await client.post("/api/v1/auth/capture-token", headers=alice)).json()["token"]
+    assert (await client.get("/api/v1/auth/capture-token", headers=alice)).json()["exists"]
+
+    # It authorizes capture...
+    r = await client.post(
+        f"/api/v1/notes/capture?token={tok1}", content="hi",
+        headers={"Content-Type": "text/plain"})
+    assert r.status_code == 201
+    # ...but is NOT a session: it can't be used as a Bearer to read notes.
+    r = await client.get("/api/v1/notes", headers={"Authorization": f"Bearer {tok1}"})
+    assert r.status_code == 401
+
+    # Minting again replaces the old token.
+    tok2 = (await client.post("/api/v1/auth/capture-token", headers=alice)).json()["token"]
+    assert tok2 != tok1
+    r = await client.post(
+        f"/api/v1/notes/capture?token={tok1}", content="x",
+        headers={"Content-Type": "text/plain"})
+    assert r.status_code == 401  # old token dead
+
+    # Revoke kills the current one.
+    assert (await client.delete("/api/v1/auth/capture-token", headers=alice)).status_code == 204
+    r = await client.post(
+        f"/api/v1/notes/capture?token={tok2}", content="x",
+        headers={"Content-Type": "text/plain"})
+    assert r.status_code == 401
+
+
+async def test_login_throttle_does_not_lock_victim_from_another_ip(auth):
+    """Griefing defense: an attacker's IP getting throttled on a username
+    must not block the real user logging in from a different IP."""
+    client, alice, user = auth
+    # Attacker IP hammers alice's username → their (ip, user) key locks.
+    attacker = {"X-Real-IP": "203.0.113.9"}
+    for _ in range(5):
+        await client.post("/api/v1/auth/login", headers=attacker,
+                          json={"username": user["username"], "password": "wrong"})
+    blocked = await client.post("/api/v1/auth/login", headers=attacker,
+                                json={"username": user["username"], "password": "wrong"})
+    assert blocked.status_code == 429
+
+    # The real user, from a different IP, is unaffected.
+    victim = {"X-Real-IP": "198.51.100.4"}
+    ok = await client.post("/api/v1/auth/login", headers=victim,
+                           json={"username": user["username"], "password": "password123"})
+    assert ok.status_code == 200

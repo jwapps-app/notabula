@@ -326,22 +326,34 @@ async def capture_note(
     ?token= query param (the Settings page hands out a personalized
     capture link so the Shortcut needs zero header configuration). The
     body may be JSON {"text": ...} or plain text."""
+    # Two auth paths: a Bearer header is a normal session (logged-in direct
+    # use); the ?token= query param is the revocable capture-ONLY token that
+    # the Settings "capture link" embeds — so that link never carries a full
+    # session token (which would leak account access via logs/history).
     bearer = request.headers.get("authorization", "")
-    raw_token = token or (bearer[7:] if bearer.lower().startswith("bearer ") else "")
-    if not raw_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    session = (
-        await db.execute(
-            select(SessionModel).where(SessionModel.token_hash == hash_token(raw_token))
-        )
-    ).scalar_one_or_none()
-    if session is None or session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(
-        timezone.utc
-    ):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
-    user = await db.get(User, session.user_id)
+    user: User | None = None
+    if bearer.lower().startswith("bearer "):
+        session = (
+            await db.execute(
+                select(SessionModel).where(
+                    SessionModel.token_hash == hash_token(bearer[7:])
+                )
+            )
+        ).scalar_one_or_none()
+        if session is not None and session.expires_at.replace(
+            tzinfo=timezone.utc
+        ) >= datetime.now(timezone.utc):
+            user = await db.get(User, session.user_id)
+    elif token:
+        user = (
+            await db.execute(
+                select(User).where(User.capture_token_hash == hash_token(token))
+            )
+        ).scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
 
     body_bytes = await request.body()
     text = ""

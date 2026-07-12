@@ -226,24 +226,26 @@ async def test_capture_requires_auth(auth):
     assert resp.status_code == 401
 
 
-async def test_capture_via_query_token_and_raw_text(auth, client=None):
-    """The Shortcut path: token in the URL, plain-text body, no headers."""
+async def test_capture_via_query_token_and_raw_text(auth):
+    """The Shortcut path: the capture token in the URL, plain-text body, no
+    headers. A session token in ?token= must NOT work (capture token only)."""
     client, alice, _ = auth
-    token = alice["Authorization"].removeprefix("Bearer ")
+    cap = (await client.post("/api/v1/auth/capture-token", headers=alice)).json()["token"]
     resp = await client.post(
-        f"/api/v1/notes/capture?token={token}",
+        f"/api/v1/notes/capture?token={cap}",
         content="Raw capture line\nsecond line",
         headers={"Content-Type": "text/plain"},
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["title"] == "Raw capture line"
 
-    bad = await client.post(
-        "/api/v1/notes/capture?token=wrong",
-        content="x",
-        headers={"Content-Type": "text/plain"},
-    )
-    assert bad.status_code == 401
+    for bad in ("wrong", alice["Authorization"].removeprefix("Bearer ")):
+        r = await client.post(
+            f"/api/v1/notes/capture?token={bad}",
+            content="x",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert r.status_code == 401, f"token {bad!r} should be rejected"
 
 
 async def test_gallery_thumb_tracks_first_image(auth):

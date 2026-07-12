@@ -93,9 +93,9 @@ async def test_capture_unfurls_a_bare_link(auth, monkeypatch):
 
     monkeypatch.setattr(unfurl_mod, "fetch_preview", fake_fetch)
 
-    token = alice["Authorization"].removeprefix("Bearer ")
+    cap = (await client.post("/api/v1/auth/capture-token", headers=alice)).json()["token"]
     resp = await client.post(
-        f"/api/v1/notes/capture?token={token}",
+        f"/api/v1/notes/capture?token={cap}",
         content="https://example.com/some-article",
         headers={"Content-Type": "text/plain"},
     )

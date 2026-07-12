@@ -223,6 +223,10 @@ export const api = {
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<UserOut>('/auth/me'),
 
+  // Capture-only token for the iOS-Shortcut link (revocable, not a session).
+  mintCaptureToken: () =>
+    request<{ token: string }>('/auth/capture-token', { method: 'POST' }),
+
   verifyPassword: (password: string) =>
     request<void>('/auth/verify-password', {
       method: 'POST',
