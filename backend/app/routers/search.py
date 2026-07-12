@@ -10,7 +10,7 @@ share are annotated with the role and owner, like the shared list view.
 import re
 
 from fastapi import APIRouter, Query
-from sqlalchemy import or_, select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import defer
 
 from app.core.deps import DB, CurrentUser
@@ -39,10 +39,18 @@ async def search_notes(
     q: str = Query(min_length=1, max_length=200),
 ) -> list[NoteListItem]:
     note_roles, folder_roles = await share_maps(db, user)
+    # A locked note is owner-only, even inside a shared folder — so shared
+    # matches must exclude locked notes (their title would otherwise leak
+    # to folder-sharees). The owner still sees their own locked notes.
     accessible = or_(
         Note.owner_id == user.id,
-        Note.id.in_(note_roles.keys()) if note_roles else False,
-        Note.folder_id.in_(folder_roles.keys()) if folder_roles else False,
+        and_(
+            Note.locked.is_(False),
+            or_(
+                Note.id.in_(note_roles.keys()) if note_roles else False,
+                Note.folder_id.in_(folder_roles.keys()) if folder_roles else False,
+            ),
+        ),
     )
 
     if db.get_bind().dialect.name == "postgresql":

@@ -55,11 +55,12 @@ async def issue_recovery_codes(db: AsyncSession, user: User) -> list[str]:
     await db.execute(
         delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user.id)
     )
-    codes = [secrets.token_hex(4) for _ in range(RECOVERY_CODE_COUNT)]
+    # 8 bytes = 64 bits of entropy per code (hex → 16 chars).
+    codes = [secrets.token_hex(8) for _ in range(RECOVERY_CODE_COUNT)]
     for code in codes:
         db.add(TotpRecoveryCode(user_id=user.id, code_hash=hash_token(code)))
-    # Display with a dash for readability; verification strips it.
-    return [f"{c[:4]}-{c[4:]}" for c in codes]
+    # Display in dash-separated groups for readability; verification strips it.
+    return [f"{c[:4]}-{c[4:8]}-{c[8:12]}-{c[12:]}" for c in codes]
 
 
 async def verify_second_factor(db: AsyncSession, user: User, code: str) -> bool:
@@ -68,8 +69,12 @@ async def verify_second_factor(db: AsyncSession, user: User, code: str) -> bool:
     if not normalized:
         return False
 
-    if normalized.isdigit() and user.totp_secret:
-        return verify_totp_code(user.totp_secret, normalized)
+    # A 6-digit code is a TOTP; anything else is a recovery code. But a
+    # recovery code can be all digits too, so if the TOTP check fails, still
+    # fall through to the recovery-code lookup rather than rejecting.
+    if len(normalized) == 6 and normalized.isdigit() and user.totp_secret:
+        if verify_totp_code(user.totp_secret, normalized):
+            return True
 
     result = await db.execute(
         select(TotpRecoveryCode).where(

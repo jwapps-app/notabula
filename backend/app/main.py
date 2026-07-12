@@ -37,12 +37,17 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+_is_prod = settings.environment == "production"
 app = FastAPI(
     title=settings.app_name,
     description=settings.app_tagline,
     version="0.1.0",
     lifespan=lifespan,
     debug=settings.debug,
+    # Don't expose the full API surface to anonymous users in production.
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
 )
 
 app.add_middleware(
@@ -57,12 +62,18 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(api_router)
 
-# Uploaded media (note attachments, Phase 2) — served at /media. The
-# directory is a persisted volume in compose; nginx proxies /media/ here.
-_media_dir = Path(settings.media_root)
+# Uploaded media — ONLY the attachments subtree is web-served. The rest
+# of MEDIA_ROOT (per-user export zips, the VAPID private key) must never
+# be reachable over HTTP, so we mount the attachments dir specifically,
+# not the whole media root.
+_attach_dir = Path(settings.media_root) / "attachments"
 try:
-    _media_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/media", StaticFiles(directory=str(_media_dir)), name="media")
+    _attach_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/media/attachments",
+        StaticFiles(directory=str(_attach_dir)),
+        name="media",
+    )
 except OSError:
     # Local dev outside Docker may not be able to create /app/media; the
     # mount only matters where uploads happen (the container).
@@ -71,4 +82,4 @@ except OSError:
 
 @app.get("/", tags=["meta"])
 async def root() -> dict:
-    return {"name": settings.app_name, "status": "ok", "docs": "/docs"}
+    return {"name": settings.app_name, "status": "ok"}

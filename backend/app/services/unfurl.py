@@ -21,23 +21,35 @@ MAX_REDIRECTS = 4
 _UA = "NotabulaBot/1.0 (+https://github.com/; link preview)"
 
 
-def _host_is_public(host: str) -> bool:
+def _ip_is_public(ip: ipaddress._BaseAddress) -> bool:
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _resolve_public_ip(host: str) -> str | None:
+    """Resolve `host` and return ONE public IP, or None if resolution fails
+    or ANY resolved address is private/loopback/etc. Returning the address
+    we actually connect to is what closes the DNS-rebinding window: the
+    caller connects to this pinned IP, not a second, attacker-controlled
+    re-resolution of the hostname."""
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
-        return False
+        return None
+    chosen: str | None = None
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return False
-    return True
+        if not _ip_is_public(ip):
+            return None  # any bad address disqualifies the host
+        if chosen is None:
+            chosen = str(ip)
+    return chosen
 
 
 def is_safe_url(url: str) -> bool:
@@ -45,7 +57,7 @@ def is_safe_url(url: str) -> bool:
     return (
         p.scheme in ("http", "https")
         and bool(p.hostname)
-        and _host_is_public(p.hostname)
+        and _resolve_public_ip(p.hostname) is not None
     )
 
 
@@ -95,10 +107,24 @@ async def fetch_preview(url: str) -> dict | None:
     ) as client:
         resp = None
         for _ in range(MAX_REDIRECTS + 1):
-            if not is_safe_url(current):
+            parsed = urlparse(current)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
                 return None
+            pinned_ip = _resolve_public_ip(parsed.hostname)
+            if pinned_ip is None:
+                return None
+            # Connect to the validated IP, but keep the real Host header and
+            # TLS SNI so virtual hosts and cert verification still work — and
+            # so a rebind between validation and connection can't happen.
+            host_ip = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+            netloc = f"{host_ip}:{parsed.port}" if parsed.port else host_ip
+            ip_url = parsed._replace(netloc=netloc).geturl()
             try:
-                resp = await client.get(current)
+                resp = await client.get(
+                    ip_url,
+                    headers={"Host": parsed.netloc},
+                    extensions={"sni_hostname": parsed.hostname},
+                )
             except httpx.HTTPError:
                 return None
             if resp.is_redirect:

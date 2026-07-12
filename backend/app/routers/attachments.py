@@ -16,13 +16,16 @@ from app.models import Attachment
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
 
+# Raster formats only. SVG is deliberately excluded: it can carry script,
+# and media is served from the app's own origin, so a booby-trapped SVG
+# opened directly would be same-origin XSS. (nginx also serves media with
+# nosniff + a locked-down CSP as defense in depth.)
 ALLOWED_TYPES = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/gif": ".gif",
     "image/webp": ".webp",
     "image/heic": ".heic",
-    "image/svg+xml": ".svg",
 }
 
 CHUNK = 1024 * 1024

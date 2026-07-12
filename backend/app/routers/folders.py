@@ -84,6 +84,19 @@ async def update_folder(
                 detail="A folder cannot be its own parent",
             )
         await _owned_folder(db, user, payload.parent_id)
+        # Reject cycles: the new parent must not be a descendant of this
+        # folder. A cycle would make the delete-time descendant walk loop
+        # forever. Walk up from the proposed parent to a root.
+        ancestor: uuid.UUID | None = payload.parent_id
+        while ancestor is not None:
+            if ancestor == folder.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A folder cannot be moved inside its own subtree",
+                )
+            ancestor = (
+                await db.execute(select(Folder.parent_id).where(Folder.id == ancestor))
+            ).scalar_one_or_none()
         folder.parent_id = payload.parent_id
     if payload.position is not None:
         folder.position = payload.position
@@ -109,6 +122,7 @@ async def delete_folder(folder_id: uuid.UUID, user: CurrentUser, db: DB) -> None
         )
     ).scalar_one()
     doomed_ids = [folder.id]
+    seen = {folder.id}
     frontier = [folder.id]
     while frontier:
         children = (
@@ -116,8 +130,12 @@ async def delete_folder(folder_id: uuid.UUID, user: CurrentUser, db: DB) -> None
             .scalars()
             .all()
         )
-        frontier = children
-        doomed_ids.extend(children)
+        # Guard against any pre-existing parent cycle in the data: only
+        # follow folders we haven't already visited, so the walk always
+        # terminates.
+        frontier = [c for c in children if c not in seen]
+        seen.update(frontier)
+        doomed_ids.extend(frontier)
     notes = (
         await db.execute(select(Note).where(Note.folder_id.in_(doomed_ids)))
     ).scalars()

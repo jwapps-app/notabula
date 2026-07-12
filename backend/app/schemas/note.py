@@ -5,11 +5,16 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+# A generous ceiling on note content: enough for very long notes, but a
+# bound so a single request can't bloat storage / the search vector or
+# stall the per-save hashtag regex with a multi-megabyte body.
+MAX_BODY_TEXT = 1_000_000
+
 
 class NoteCreate(BaseModel):
     folder_id: uuid.UUID
     body: dict | None = None
-    body_text: str = ""
+    body_text: str = Field(default="", max_length=MAX_BODY_TEXT)
     title: str = Field(default="", max_length=400)
 
 
@@ -20,7 +25,7 @@ class NoteUpdate(BaseModel):
     base_version: int
     folder_id: uuid.UUID | None = None
     body: dict | None = None
-    body_text: str | None = None
+    body_text: str | None = Field(default=None, max_length=MAX_BODY_TEXT)
     title: str | None = Field(default=None, max_length=400)
     pinned: bool | None = None
     # Locked notes (owner only): locked=True with cipher_body encrypts;
