@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     sql_echo: bool = Field(default=False, alias="SQL_ECHO")
 
     # --- Security ------------------------------------------------------
-    secret_key: str = Field(default="dev-insecure-change-me", alias="SECRET_KEY")
+    # (No SECRET_KEY: passwords use bcrypt's own salts and session tokens are
+    # stored as SHA-256 hashes — nothing here is signed with an app secret.)
     session_ttl_days: int = Field(default=90, alias="SESSION_TTL_DAYS")
     # Registration is open only while the instance has zero users: the first
     # account becomes admin and the door closes. Admins add everyone else

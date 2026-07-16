@@ -77,10 +77,5 @@ async def sync_note_tags(
             [{"note_id": note.id, "tag_id": t.id} for t in tags],
         )
 
-    # Drop the owner's tags that no longer appear on any note.
-    await db.execute(
-        delete(Tag).where(
-            Tag.owner_id == owner_id,
-            ~Tag.id.in_(select(note_tags.c.tag_id)),
-        )
-    )
+    if sweep_orphans:
+        await sweep_orphan_tags(db, owner_id)

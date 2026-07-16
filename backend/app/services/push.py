@@ -71,21 +71,27 @@ class Targets:
 
 
 async def targets_for_user(db: AsyncSession, user_id) -> Targets:
-    devices = [
-        (d.token, d.sandbox)
-        for d in (
-            await db.execute(select(Device).where(Device.user_id == user_id))
-        ).scalars()
-    ]
-    subs = [
-        {"endpoint": s.endpoint, "keys": {"p256dh": s.p256dh, "auth": s.auth}}
-        for s in (
-            await db.execute(
-                select(PushSubscription).where(PushSubscription.user_id == user_id)
-            )
-        ).scalars()
-    ]
-    return Targets(devices=devices, subscriptions=subs)
+    return (await targets_for_users(db, [user_id])).get(user_id, Targets([], []))
+
+
+async def targets_for_users(db: AsyncSession, user_ids) -> dict:
+    """user_id → Targets for a whole participant set in two queries total
+    (notifying a shared note's N participants was 2N queries)."""
+    ids = list(user_ids)
+    out: dict = {uid: Targets(devices=[], subscriptions=[]) for uid in ids}
+    if not ids:
+        return out
+    for d in (
+        await db.execute(select(Device).where(Device.user_id.in_(ids)))
+    ).scalars():
+        out[d.user_id].devices.append((d.token, d.sandbox))
+    for s in (
+        await db.execute(select(PushSubscription).where(PushSubscription.user_id.in_(ids)))
+    ).scalars():
+        out[s.user_id].subscriptions.append(
+            {"endpoint": s.endpoint, "keys": {"p256dh": s.p256dh, "auth": s.auth}}
+        )
+    return out
 
 
 async def _send_apns(token: str, sandbox: bool, title: str, body: str, data: dict) -> None:
@@ -153,11 +159,19 @@ async def _deliver_task(targets: Targets, title: str, body: str, data: dict) -> 
         await _deliver_one_webpush(sub, payload)
 
 
+# Keep strong references to in-flight deliveries: asyncio only holds a weak
+# reference to tasks, so an unreferenced create_task can be garbage-collected
+# mid-flight and the notification silently vanishes.
+_pending_deliveries: set[asyncio.Task] = set()
+
+
 def deliver(targets: Targets, *, title: str, body: str, data: dict | None = None) -> None:
     """Fire-and-forget fan-out. Tests monkeypatch this."""
     if not targets.devices and not targets.subscriptions:
         return
-    asyncio.create_task(_deliver_task(targets, title, body, data or {}))
+    task = asyncio.create_task(_deliver_task(targets, title, body, data or {}))
+    _pending_deliveries.add(task)
+    task.add_done_callback(_pending_deliveries.discard)
 
 
 async def notify_user(

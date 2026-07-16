@@ -10,6 +10,19 @@ import secrets
 
 import bcrypt
 
+# bcrypt silently ignores everything past 72 bytes — reject instead, so users
+# aren't misled into thinking their whole passphrase counts.
+MAX_PASSWORD_BYTES = 72
+
+
+def password_error(password: str, min_length: int) -> str | None:
+    """Human-readable policy violation, or None if the password is acceptable."""
+    if len(password) < min_length:
+        return f"Password must be at least {min_length} characters"
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        return f"Password must be at most {MAX_PASSWORD_BYTES} bytes"
+    return None
+
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")

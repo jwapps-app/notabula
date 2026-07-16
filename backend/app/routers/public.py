@@ -41,11 +41,13 @@ class PublicNoteUpdate(BaseModel):
     guest_name: str | None = Field(default=None, max_length=80)
 
 
-async def _linked_note(db, token: str) -> tuple[Note, NoteLink]:
+async def _linked_note(db, token: str, *, for_update: bool = False) -> tuple[Note, NoteLink]:
     link = (
         await db.execute(select(NoteLink).where(NoteLink.token == token))
     ).scalar_one_or_none()
-    note = None if link is None else await db.get(Note, link.note_id)
+    # for_update: row-lock on mutation paths so the base_version check can't
+    # race a concurrent writer (lost update).
+    note = None if link is None else await db.get(Note, link.note_id, with_for_update=for_update)
     if link is None or note is None or note.deleted_at is not None or note.locked:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Link not found"
@@ -75,7 +77,7 @@ async def get_public_note(token: str, db: DB) -> PublicNote:
 async def update_public_note(
     token: str, payload: PublicNoteUpdate, db: DB
 ) -> PublicNote:
-    note, link = await _linked_note(db, token)
+    note, link = await _linked_note(db, token, for_update=True)
     if link.role != "editor":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

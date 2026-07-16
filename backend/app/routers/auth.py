@@ -16,7 +16,13 @@ from sqlalchemy import delete, func, select
 
 from app.config import settings
 from app.core.deps import DB, CurrentUser
-from app.core.security import generate_token, hash_password, hash_token, verify_password
+from app.core.security import (
+    generate_token,
+    hash_password,
+    hash_token,
+    password_error,
+    verify_password,
+)
 from app.models import Folder, Session, TotpRecoveryCode, User
 from app.schemas.auth import (
     LoginRequest,
@@ -67,7 +73,17 @@ def _throttle_check(key: tuple[str, str]) -> None:
 
 
 def _throttle_fail(key: tuple[str, str]) -> None:
-    _login_failures.setdefault(key, []).append(time.monotonic())
+    now = time.monotonic()
+    _login_failures.setdefault(key, []).append(now)
+    # Bound the dict: one-off (ip, username) keys were never pruned, so the
+    # map grew for the process's lifetime. Sweep expired keys occasionally.
+    if len(_login_failures) > 1000:
+        for k in [
+            k
+            for k, ts in _login_failures.items()
+            if not ts or now - ts[-1] >= _FAILURE_WINDOW_SECONDS
+        ]:
+            _login_failures.pop(k, None)
 
 
 def _throttle_clear(key: tuple[str, str]) -> None:
@@ -97,11 +113,8 @@ async def register(payload: RegisterRequest, db: DB) -> SessionResult:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Registration is closed — ask your admin for an account",
         )
-    if len(payload.password) < settings.min_password_length:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Password must be at least {settings.min_password_length} characters",
-        )
+    if err := password_error(payload.password, settings.min_password_length):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
 
     user = User(
         username=payload.username,
@@ -236,11 +249,8 @@ async def change_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
         )
-    if len(payload.new_password) < settings.min_password_length:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Password must be at least {settings.min_password_length} characters",
-        )
+    if err := password_error(payload.new_password, settings.min_password_length):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
     user.password_hash = hash_password(payload.new_password)
     current_hash = hash_token(credentials.credentials) if credentials else ""
     await db.execute(

@@ -43,6 +43,11 @@ from app.services.tags import sweep_orphan_tags, sync_note_tags
 router = APIRouter(prefix="/notes", tags=["notes"])
 
 PREVIEW_LEN = 120
+# Generous cap on list endpoints so response size/scan cost can't grow without
+# bound (search already caps at 100; these views had no limit at all).
+MAX_LIST = 1000
+# Bare-URL detector for share-sheet captures (module-level: compiled once).
+_URL_ONLY_RE = re.compile(r"https?://\S+")
 
 
 def _preview(note: Note) -> str:
@@ -63,9 +68,16 @@ def _list_item(note: Note, role: str = "owner", owner_name: str | None = None) -
     return item
 
 
-async def _accessible_note(db, user, note_id: uuid.UUID) -> tuple[Note, str]:
-    """Return (note, role) or 404. Callers enforce the role they need."""
-    note = await db.get(Note, note_id)
+async def _accessible_note(
+    db, user, note_id: uuid.UUID, *, for_update: bool = False
+) -> tuple[Note, str]:
+    """Return (note, role) or 404. Callers enforce the role they need.
+
+    Pass for_update=True on mutation paths: it takes a row lock so the
+    optimistic base_version check can't race a concurrent writer (two PATCHes
+    both reading version N and both "winning" — one edit silently lost).
+    """
+    note = await db.get(Note, note_id, with_for_update=for_update)
     role = None if note is None else await note_role(db, user, note)
     if note is None or role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
@@ -142,7 +154,7 @@ async def list_notes(
         query = query.where(Note.deleted_at.is_(None))
         if folder_id is not None:
             query = query.where(Note.folder_id == folder_id)
-    query = query.order_by(Note.pinned.desc(), Note.updated_at.desc())
+    query = query.order_by(Note.pinned.desc(), Note.updated_at.desc()).limit(MAX_LIST)
     result = await db.execute(query)
     return [_list_item(n) for n in result.scalars()]
 
@@ -186,7 +198,9 @@ async def _list_smart_view(db, user, view: str) -> list[NoteListItem]:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Unknown view",
         )
-    result = await db.execute(query.order_by(Note.pinned.desc(), Note.updated_at.desc()))
+    result = await db.execute(
+        query.order_by(Note.pinned.desc(), Note.updated_at.desc()).limit(MAX_LIST)
+    )
     return [_list_item(n) for n in result.scalars()]
 
 
@@ -373,7 +387,7 @@ async def capture_note(
         )
     # A bare shared link is unreadable as a note title — unfurl it so the
     # first line is the page title, with the URL beneath (still a link).
-    if re.fullmatch(r"https?://\S+", text):
+    if _URL_ONLY_RE.fullmatch(text):
         from app.services.unfurl import fetch_preview
 
         preview = await fetch_preview(text)
@@ -480,7 +494,7 @@ async def get_note(note_id: uuid.UUID, user: CurrentUser, db: DB) -> NoteOut:
 async def update_note(
     note_id: uuid.UUID, payload: NoteUpdate, user: CurrentUser, db: DB
 ) -> NoteOut:
-    note, role = await _accessible_note(db, user, note_id)
+    note, role = await _accessible_note(db, user, note_id, for_update=True)
     if role == "viewer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -591,9 +605,9 @@ async def update_note(
             await notify_note_edited(
                 db, note, editor_id=user.id, editor_name=user.name
             )
-    # updated_at is computed server-side (onupdate=now()); refresh so the
-    # response carries the real value instead of an expired attribute.
-    await db.refresh(note)
+    # updated_at is computed server-side (onupdate=now()); refresh JUST that
+    # column — a bare refresh() refetches the whole row including the body.
+    await db.refresh(note, ["updated_at"])
     return _note_out(note, role)
 
 
@@ -686,5 +700,5 @@ async def restore_note(note_id: uuid.UUID, user: CurrentUser, db: DB) -> NoteOut
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
     note.deleted_at = None
     await db.flush()
-    await db.refresh(note)
+    await db.refresh(note, ["updated_at"])
     return _note_out(note, "owner")

@@ -16,8 +16,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.models import FolderShare, Note, NoteShare
+from app.services import push as push_service
 from app.services.push import notify_user
 
 logger = logging.getLogger(__name__)
@@ -72,10 +74,12 @@ async def notify_note_edited(
     people.discard(editor_id)
     if not people:
         return
-    for user_id in people:
-        await notify_user(
-            db,
-            user_id,
+    # Resolve every participant's targets in two queries (was 2 per person).
+    # Late-bound via the module so tests can monkeypatch push.deliver.
+    targets_by_user = await push_service.targets_for_users(db, people)
+    for targets in targets_by_user.values():
+        push_service.deliver(
+            targets,
             title=_title(note),
             body=f"{editor_name} made changes",
             data={"type": "edit", "note_id": str(note.id)},
@@ -106,7 +110,10 @@ async def fire_due_reminders(db: AsyncSession) -> int:
     due = (
         (
             await db.execute(
-                select(Note).where(
+                select(Note)
+                # Only title/owner_id/reminded_at are touched — skip the bodies.
+                .options(defer(Note.body), defer(Note.cipher_body), defer(Note.body_text))
+                .where(
                     Note.remind_at.is_not(None),
                     Note.remind_at <= now,
                     Note.reminded_at.is_(None),

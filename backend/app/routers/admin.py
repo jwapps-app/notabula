@@ -17,7 +17,7 @@ from sqlalchemy import delete, select
 
 from app.config import settings
 from app.core.deps import DB, get_current_user
-from app.core.security import hash_password
+from app.core.security import hash_password, password_error
 from app.models import Folder, Session, TotpRecoveryCode, User
 from app.schemas.auth import RegisterRequest, UserOut
 from app.services.restore import (
@@ -63,11 +63,8 @@ async def list_users(admin: AdminUser, db: DB) -> list[AdminUserOut]:
 
 @router.post("/users", response_model=UserOut, status_code=201)
 async def create_user(payload: AdminUserCreate, admin: AdminUser, db: DB) -> UserOut:
-    if len(payload.password) < settings.min_password_length:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Password must be at least {settings.min_password_length} characters",
-        )
+    if err := password_error(payload.password, settings.min_password_length):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
     existing = await db.execute(select(User).where(User.username == payload.username))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(
@@ -96,11 +93,8 @@ async def _target_user(db, user_id: uuid.UUID) -> User:
 async def reset_password(
     user_id: uuid.UUID, payload: PasswordReset, admin: AdminUser, db: DB
 ) -> None:
-    if len(payload.password) < settings.min_password_length:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Password must be at least {settings.min_password_length} characters",
-        )
+    if err := password_error(payload.password, settings.min_password_length):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
     user = await _target_user(db, user_id)
     user.password_hash = hash_password(payload.password)
     # An admin reset invalidates every existing session for that account.

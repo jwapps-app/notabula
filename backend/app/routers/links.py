@@ -52,6 +52,10 @@ async def preview(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid URL"
         )
 
+    # Plain equality (portable — the sqlite test DB has no md5()); uniqueness
+    # is enforced in Postgres by the md5(url) expression index, which exists
+    # because a unique btree on the raw 2048-char column can exceed the btree
+    # row limit. The cache table is small, so an unindexed lookup is fine.
     row = (
         await db.execute(select(LinkPreview).where(LinkPreview.url == url))
     ).scalar_one_or_none()
@@ -59,6 +63,10 @@ async def preview(
     if row and row.fetched_at.replace(tzinfo=timezone.utc) > now - REFRESH_AFTER:
         return _out(row)
 
+    # Release the DB connection back to the pool during the (up to ~6s)
+    # external unfurl — don't pin a pooled connection on a network wait.
+    # Safe: expire_on_commit=False, and nothing is pending yet.
+    await db.commit()
     data = await fetch_preview(url)
     if row is None:
         row = LinkPreview(url=url)

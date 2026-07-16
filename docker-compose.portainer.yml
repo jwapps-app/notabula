@@ -53,7 +53,6 @@ services:
       DB_USER: ${POSTGRES_USER:-notesapp}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-notesapp}
-      SECRET_KEY: ${SECRET_KEY}
       APP_NAME: ${APP_NAME:-Notabula}
       APP_URL: ${APP_URL:-https://notes.example.com}
       ENVIRONMENT: production
@@ -138,7 +137,6 @@ volumes:
 # Environment variables to set in Portainer (Stacks → Environment variables):
 #
 #   POSTGRES_PASSWORD   (required) strong password for Postgres
-#   SECRET_KEY          (required) python -c "import secrets; print(secrets.token_urlsafe(48))"
 #   WEB_PORT            host port for the app          (default 8210)
 #   APP_URL             public URL, display only       (default https://notes.example.com)
 #   DATA_DIR            host dir for Postgres data     (default /volume1/docker/notabula)

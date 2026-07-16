@@ -17,7 +17,9 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 class LinkPreview(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "link_previews"
 
-    url: Mapped[str] = mapped_column(String(2048), unique=True, nullable=False)
+    # Uniqueness lives in a md5(url) expression index (see migration 0016) —
+    # a plain unique btree on 2048 chars can exceed Postgres's index row limit.
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)

@@ -6,6 +6,12 @@ check revision bodies: as long as any history entry still references the
 file, restoring that revision must bring the image back, so it stays.
 (Revisions are capped per note, so truly abandoned files do age out.)
 
+Locked notes are opaque: their content lives in cipher_body, which the
+server cannot scan for references. Deleting "orphans" for an owner who
+has any locked note could destroy images that are only referenced inside
+the encrypted body — so those owners' attachments are skipped entirely
+until they have no locked notes.
+
 A second pass sweeps the media directory itself: deleting a user
 cascades their attachment rows away, which strands the files where the
 row-driven pass above can never find them. Any file no attachment row
@@ -17,6 +23,7 @@ hasn't been saved into a note body yet.
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,39 +37,55 @@ logger = logging.getLogger(__name__)
 
 GRACE_PERIOD = timedelta(days=1)
 
+# stored_name is a UUID-hex filename with an extension; references appear in
+# bodies as ".../media/attachments/<stored_name>".
+_REF_RE = re.compile(r"attachments/([A-Za-z0-9]+\.[A-Za-z0-9]+)")
+
+
+async def _referenced_stored_names(db: AsyncSession) -> set[str]:
+    """Every attachment filename referenced by any note or revision body —
+    collected in one pass over each table (not one LIKE-scan per attachment)."""
+    referenced: set[str] = set()
+    note_bodies = (
+        await db.execute(select(cast(Note.body, Text)).where(Note.body.is_not(None)))
+    ).scalars()
+    for body in note_bodies:
+        referenced.update(_REF_RE.findall(body or ""))
+    revision_bodies = (
+        await db.execute(
+            select(cast(NoteRevision.body, Text)).where(NoteRevision.body.is_not(None))
+        )
+    ).scalars()
+    for body in revision_bodies:
+        referenced.update(_REF_RE.findall(body or ""))
+    return referenced
+
 
 async def purge_orphan_attachments(db: AsyncSession) -> int:
     cutoff = datetime.now(timezone.utc) - GRACE_PERIOD
     candidates = (
-        (
-            await db.execute(
-                select(Attachment).where(Attachment.created_at < cutoff)
-            )
-        )
+        (await db.execute(select(Attachment).where(Attachment.created_at < cutoff)))
         .scalars()
         .all()
+    )
+    if not candidates:
+        return await _sweep_unclaimed_files(db, cutoff)
+
+    referenced = await _referenced_stored_names(db)
+    # Owners with locked notes: references may hide inside cipher_body, which
+    # we can't scan — never GC their attachments.
+    locked_owners = set(
+        (
+            await db.execute(select(Note.owner_id).where(Note.locked.is_(True)).distinct())
+        ).scalars()
     )
 
     removed = 0
     for attachment in candidates:
-        marker = f"%{attachment.stored_name}%"
-        referenced_by_note = (
-            await db.execute(
-                select(Note.id).where(cast(Note.body, Text).like(marker)).limit(1)
-            )
-        ).scalar_one_or_none()
-        if referenced_by_note is not None:
+        if attachment.owner_id in locked_owners:
             continue
-        referenced_by_revision = (
-            await db.execute(
-                select(NoteRevision.id)
-                .where(cast(NoteRevision.body, Text).like(marker))
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if referenced_by_revision is not None:
+        if attachment.stored_name in referenced:
             continue
-
         path = Path(settings.media_root) / "attachments" / attachment.stored_name
         path.unlink(missing_ok=True)
         await db.delete(attachment)
