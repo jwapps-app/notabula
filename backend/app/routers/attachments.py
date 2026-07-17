@@ -1,4 +1,5 @@
-"""Attachment upload — images embedded into note bodies.
+"""Attachment upload — images embedded into note bodies, and PDFs linked
+from them.
 
 Files are streamed to MEDIA_ROOT/attachments under an unguessable UUID
 name and served back at /media/attachments/<name> (nginx in compose, the
@@ -16,16 +17,19 @@ from app.models import Attachment
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
 
-# Raster formats only. SVG is deliberately excluded: it can carry script,
-# and media is served from the app's own origin, so a booby-trapped SVG
-# opened directly would be same-origin XSS. (nginx also serves media with
-# nosniff + a locked-down CSP as defense in depth.)
+# Raster formats plus PDF. SVG is deliberately excluded: it can carry
+# script, and media is served from the app's own origin, so a
+# booby-trapped SVG opened directly would be same-origin XSS. PDF is safe
+# to serve here because /media/attachments is returned with nosniff and a
+# `default-src 'none'; sandbox` CSP (see infra/nginx), so a PDF opens in
+# the browser's sandboxed viewer with no script execution or origin reach.
 ALLOWED_TYPES = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/gif": ".gif",
     "image/webp": ".webp",
     "image/heic": ".heic",
+    "application/pdf": ".pdf",
 }
 
 CHUNK = 1024 * 1024
@@ -37,7 +41,7 @@ async def upload_attachment(file: UploadFile, user: CurrentUser, db: DB) -> dict
     if ext is None:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only image uploads are supported",
+            detail="Only image and PDF uploads are supported",
         )
 
     max_bytes = settings.max_upload_mb * 1024 * 1024

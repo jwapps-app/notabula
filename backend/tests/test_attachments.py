@@ -34,6 +34,22 @@ async def test_upload_png(auth, media_tmp):
     assert stored.read_bytes() == PNG
 
 
+async def test_upload_pdf(auth, media_tmp):
+    client, headers, _ = auth
+    pdf = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
+    resp = await client.post(
+        "/api/v1/attachments",
+        headers=headers,
+        files={"file": ("report.pdf", pdf, "application/pdf")},
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["url"].endswith(".pdf")
+    assert data["content_type"] == "application/pdf"
+    stored = media_tmp / "attachments" / data["url"].rsplit("/", 1)[1]
+    assert stored.read_bytes() == pdf
+
+
 async def test_upload_rejects_non_image(auth):
     client, headers, _ = auth
     resp = await client.post(
