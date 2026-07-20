@@ -13,6 +13,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { HashtagHighlight } from '../lib/hashtagHighlight'
 import { Linkify } from '../lib/linkify'
 import { Link } from '../lib/link'
+import { PdfEmbed } from '../lib/pdfEmbed'
 import { ApiError, OfflineError, api } from '../lib/api'
 import type { FolderOut, NoteOut, RevisionDetail } from '../lib/api'
 import { LOCAL_ID_PREFIX, cacheNote, queueEdit } from '../lib/offline'
@@ -200,6 +201,7 @@ export default function NoteEditor({
       HashtagHighlight,
       Linkify,
       Link,
+      PdfEmbed,
     ],
     editorProps: {
       handleDOMEvents: {

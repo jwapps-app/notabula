@@ -11,6 +11,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { HashtagHighlight } from '../lib/hashtagHighlight'
 import { Linkify } from '../lib/linkify'
 import { Link } from '../lib/link'
+import { PdfEmbed } from '../lib/pdfEmbed'
 import { ApiError, api } from '../lib/api'
 import type { PublicNote } from '../lib/api'
 
@@ -55,6 +56,7 @@ export default function PublicNotePage() {
       HashtagHighlight,
       Linkify,
       Link,
+      PdfEmbed,
     ],
     editable: false,
     onUpdate: ({ editor }) => {
