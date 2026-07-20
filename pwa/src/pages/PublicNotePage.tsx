@@ -10,6 +10,7 @@ import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
 import { HashtagHighlight } from '../lib/hashtagHighlight'
 import { Linkify } from '../lib/linkify'
+import { Link } from '../lib/link'
 import { ApiError, api } from '../lib/api'
 import type { PublicNote } from '../lib/api'
 
@@ -53,6 +54,7 @@ export default function PublicNotePage() {
       Highlight,
       HashtagHighlight,
       Linkify,
+      Link,
     ],
     editable: false,
     onUpdate: ({ editor }) => {

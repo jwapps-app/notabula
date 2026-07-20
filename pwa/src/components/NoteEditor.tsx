@@ -12,6 +12,7 @@ import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
 import { HashtagHighlight } from '../lib/hashtagHighlight'
 import { Linkify } from '../lib/linkify'
+import { Link } from '../lib/link'
 import { ApiError, OfflineError, api } from '../lib/api'
 import type { FolderOut, NoteOut, RevisionDetail } from '../lib/api'
 import { LOCAL_ID_PREFIX, cacheNote, queueEdit } from '../lib/offline'
@@ -198,14 +199,23 @@ export default function NoteEditor({
       Highlight,
       HashtagHighlight,
       Linkify,
+      Link,
     ],
     editorProps: {
       handleDOMEvents: {
         // Click an image → view it full size in a new tab.
         click: (_view, event) => {
-          const img = (event.target as HTMLElement).closest?.('img')
+          const target = event.target as HTMLElement
+          const img = target.closest?.('img')
           if (img?.getAttribute('src')?.startsWith('/media/')) {
             window.open(img.getAttribute('src')!, '_blank', 'noopener')
+            return true
+          }
+          // Click a stored link (e.g. an attached PDF) → open it. In an
+          // editable view a click would otherwise just move the caret.
+          const href = target.closest?.('a[href]')?.getAttribute('href')
+          if (href) {
+            window.open(href, '_blank', 'noopener')
             return true
           }
           return false
