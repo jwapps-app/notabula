@@ -322,13 +322,37 @@ export default function NotesPage() {
 
   // Coming back to the app (PWA switched in on iOS): re-read the list —
   // from cache when offline — so it never shows a stale snapshot.
+  // Pick up changes made elsewhere (another device, the iOS app) without
+  // needing a reload. Three triggers, because no single one covers every case:
+  //
+  //  - window focus: the important one for an installed PWA. Its window stays
+  //    `visible` while another app is in front, so visibilitychange never
+  //    fires when you switch back to it — which is why it looked like you had
+  //    to quit and relaunch to see new notes.
+  //  - visibilitychange: browser tabs, and minimise/restore.
+  //  - a slow poll: catches edits made while the window is simply left open.
+  //
+  // Only the lists refresh; an open note is left alone so this can never
+  // interrupt or clobber what you're typing.
   useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return
+      void refreshList()
+      void refreshFolders()
+      void refreshTags()
+    }
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void refreshList()
+      if (document.visibilityState === 'visible') refresh()
     }
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [refreshList])
+    window.addEventListener('focus', refresh)
+    const timer = setInterval(refresh, 60_000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', refresh)
+      clearInterval(timer)
+    }
+  }, [refreshList, refreshFolders, refreshTags])
 
   useEffect(() => {
     setOpenNote(null)
