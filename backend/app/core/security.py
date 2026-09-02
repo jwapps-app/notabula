@@ -5,6 +5,7 @@ persist only their SHA-256 hashes so a database leak never exposes a
 usable token.
 """
 
+import asyncio
 import hashlib
 import secrets
 
@@ -13,6 +14,11 @@ import bcrypt
 # bcrypt silently ignores everything past 72 bytes — reject instead, so users
 # aren't misled into thinking their whole passphrase counts.
 MAX_PASSWORD_BYTES = 72
+
+# Compared against when a login names an account that doesn't exist, so the
+# request costs a bcrypt either way and response time can't reveal which
+# usernames are real. Computed once at import.
+_DUMMY_HASH = bcrypt.hashpw(b"not-a-real-password", bcrypt.gensalt())
 
 
 def password_error(password: str, min_length: int) -> str | None:
@@ -28,11 +34,29 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
-def verify_password(password: str, password_hash: str) -> bool:
+def verify_password(password: str, password_hash: str | None) -> bool:
+    """Check a password. A None hash (no such account) still runs a bcrypt
+    against a dummy hash and returns False, keeping the timing uniform."""
     try:
+        if password_hash is None:
+            bcrypt.checkpw(password.encode("utf-8"), _DUMMY_HASH)
+            return False
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except ValueError:
         return False
+
+
+# bcrypt is CPU-bound (~250 ms at the default cost) and synchronous. Run it
+# off the event loop: with a single uvicorn worker, an inline call would
+# stall every other in-flight request for the duration of each login.
+
+
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str | None) -> bool:
+    return await asyncio.to_thread(verify_password, password, password_hash)
 
 
 def generate_token(nbytes: int = 32) -> str:

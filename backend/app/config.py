@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     min_password_length: int = Field(default=8, alias="MIN_PASSWORD_LENGTH")
     # Days a note stays in Recently Deleted before the daily purge removes it.
     purge_after_days: int = Field(default=30, alias="PURGE_AFTER_DAYS")
+    # Honor X-Real-IP for the login throttle. True is right behind the shipped
+    # nginx (it overwrites the header with the real peer). Set false if the
+    # API is ever reachable without that proxy, or the header is spoofable.
+    trust_proxy_headers: bool = Field(default=True, alias="TRUST_PROXY_HEADERS")
 
     # --- Datastore -----------------------------------------------------
     database_url: PostgresDsn = Field(

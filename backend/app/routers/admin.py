@@ -4,6 +4,7 @@ There is no email in this system, so the admin IS the account-recovery
 path: they create accounts, reset passwords, and clear a lost 2FA setup.
 """
 
+import asyncio
 import shutil
 import tempfile
 import uuid
@@ -14,10 +15,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.core.deps import DB, get_current_user
-from app.core.security import hash_password, password_error
+from app.core.security import hash_password_async, password_error
 from app.models import Folder, Session, TotpRecoveryCode, User
 from app.schemas.auth import RegisterRequest, UserOut
 from app.services.restore import (
@@ -73,11 +75,17 @@ async def create_user(payload: AdminUserCreate, admin: AdminUser, db: DB) -> Use
     user = User(
         username=payload.username,
         name=payload.name.strip(),
-        password_hash=hash_password(payload.password),
+        password_hash=await hash_password_async(payload.password),
         is_admin=False,
     )
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # The pre-check above can lose a race; the unique index can't.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="That username is taken"
+        )
     db.add(Folder(owner_id=user.id, name="Notes", is_default=True, position=0))
     return UserOut.model_validate(user)
 
@@ -96,7 +104,7 @@ async def reset_password(
     if err := password_error(payload.password, settings.min_password_length):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
     user = await _target_user(db, user_id)
-    user.password_hash = hash_password(payload.password)
+    user.password_hash = await hash_password_async(payload.password)
     # An admin reset invalidates every existing session for that account.
     await db.execute(delete(Session).where(Session.user_id == user.id))
 
@@ -179,16 +187,21 @@ async def restore_from_backup(
     transaction, so a bad file changes nothing. Every session is part of
     the backup, so all clients — including this one — sign in again."""
     tmp_dir = Path(tempfile.mkdtemp(prefix="restore-"))
+
+    def spool(upload: UploadFile, path: Path) -> None:
+        # Blocking copy of a multi-GB upload — keep it off the event loop so
+        # the server stays responsive while the dump lands on disk.
+        with path.open("wb") as out:
+            shutil.copyfileobj(upload.file, out)
+
     try:
         # pg_restore needs real files on disk, not upload streams.
         dump_path = tmp_dir / "db.dump"
-        with dump_path.open("wb") as out:
-            shutil.copyfileobj(db_dump.file, out)
+        await asyncio.to_thread(spool, db_dump, dump_path)
         media_path: Path | None = None
         if media_archive is not None and media_archive.filename:
             media_path = tmp_dir / "media.tar.gz"
-            with media_path.open("wb") as out:
-                shutil.copyfileobj(media_archive.file, out)
+            await asyncio.to_thread(spool, media_archive, media_path)
 
         # Release every pooled connection — pg_restore is about to drop
         # the tables they're parked on.
@@ -199,7 +212,9 @@ async def restore_from_backup(
 
         await restore_database(dump_path)
         await run_migrations()
-        media_files = extract_media(media_path) if media_path else 0
+        media_files = (
+            await asyncio.to_thread(extract_media, media_path) if media_path else 0
+        )
     except RestoreError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)

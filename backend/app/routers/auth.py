@@ -13,15 +13,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.core.deps import DB, CurrentUser
 from app.core.security import (
     generate_token,
-    hash_password,
+    hash_password_async,
     hash_token,
     password_error,
-    verify_password,
+    verify_password_async,
 )
 from app.models import Folder, Session, TotpRecoveryCode, User
 from app.schemas.auth import (
@@ -54,11 +55,12 @@ _login_failures: dict[tuple[str, str], list[float]] = {}
 
 def _client_ip(request: Request) -> str:
     # nginx sets X-Real-IP to the real remote address (overwriting any
-    # client-sent value), so it's trustworthy behind our proxy; direct/dev
-    # requests fall back to the socket peer.
-    return request.headers.get("x-real-ip") or (
-        request.client.host if request.client else "unknown"
-    )
+    # client-sent value), so it's trustworthy behind our proxy. If the API is
+    # ever exposed without that proxy, set TRUST_PROXY_HEADERS=false — else
+    # a caller could spoof the header and sidestep the login throttle.
+    if settings.trust_proxy_headers and (ip := request.headers.get("x-real-ip")):
+        return ip
+    return request.client.host if request.client else "unknown"
 
 
 def _throttle_check(key: tuple[str, str]) -> None:
@@ -119,11 +121,18 @@ async def register(payload: RegisterRequest, db: DB) -> SessionResult:
     user = User(
         username=payload.username,
         name=payload.name.strip(),
-        password_hash=hash_password(payload.password),
+        password_hash=await hash_password_async(payload.password),
         is_admin=True,  # the bootstrap user administers the instance
     )
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Two first-run registrations racing with the same username: the
+        # unique index decides, and the loser gets a clean 409 (not a 500).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="That username is taken"
+        )
 
     # Every account starts with the undeletable default folder.
     db.add(Folder(owner_id=user.id, name="Notes", is_default=True, position=0))
@@ -134,14 +143,17 @@ async def register(payload: RegisterRequest, db: DB) -> SessionResult:
 
 @router.post("/login", response_model=SessionResult)
 async def login(payload: LoginRequest, request: Request, db: DB) -> SessionResult:
-    result = await db.execute(
-        select(User).where(User.username == payload.username.strip().lower())
-    )
-    user = result.scalar_one_or_none()
     username = payload.username.strip().lower()
     key = (_client_ip(request), username)
-    _throttle_check(key)
-    if user is None or not verify_password(payload.password, user.password_hash):
+    _throttle_check(key)  # before the DB hit: a throttled caller costs nothing
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    # Always pay for a bcrypt (a missing account compares against a dummy
+    # hash) so the response time can't reveal which usernames exist.
+    ok = await verify_password_async(
+        payload.password, user.password_hash if user else None
+    )
+    if user is None or not ok:
         _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -226,7 +238,7 @@ async def verify_password_check(
     Shares the login throttle so it can't be used as a guessing oracle."""
     key = (_client_ip(request), user.username)
     _throttle_check(key)
-    if not verify_password(payload.password, user.password_hash):
+    if not await verify_password_async(payload.password, user.password_hash):
         _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -244,14 +256,14 @@ async def change_password(
 ) -> None:
     """Change my own password. Signs out every other device (but not this
     one) — standard hygiene in case the change is because of a leak."""
-    if not verify_password(payload.current_password, user.password_hash):
+    if not await verify_password_async(payload.current_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
         )
     if err := password_error(payload.new_password, settings.min_password_length):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
-    user.password_hash = hash_password(payload.new_password)
+    user.password_hash = await hash_password_async(payload.new_password)
     current_hash = hash_token(credentials.credentials) if credentials else ""
     await db.execute(
         delete(Session).where(

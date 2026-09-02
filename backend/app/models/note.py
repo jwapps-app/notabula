@@ -38,6 +38,20 @@ def first_image_src(body: dict | None) -> str | None:
     return walk(body) if body else None
 
 
+def has_unchecked_task(body: dict | None) -> bool:
+    """Whether any task item in a ProseMirror doc is still unchecked —
+    what the "Open Tasks" smart view collects."""
+
+    def walk(node) -> bool:
+        if isinstance(node, dict):
+            if (node.get("attrs") or {}).get("checked") is False:
+                return True
+            return any(walk(child) for child in node.get("content") or [])
+        return False
+
+    return walk(body) if body else False
+
+
 class Note(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "notes"
 
@@ -59,6 +73,12 @@ class Note(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # column (maintained by the body "set" listener below) so list queries
     # can keep deferring the heavy body JSON.
     thumb: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Any unchecked to-do in the body — the "Open Tasks" smart view. Kept in
+    # step by the same body listener as `thumb`, so the view is an indexed
+    # boolean test instead of a LIKE over every body cast to text.
+    has_open_tasks: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
@@ -95,8 +115,9 @@ class Note(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 @event.listens_for(Note.body, "set")
-def _sync_thumb(target: Note, value, _oldvalue, _initiator) -> None:
+def _sync_derived(target: Note, value, _oldvalue, _initiator) -> None:
     """Every body write (create kwargs, updates, imports, guest edits,
-    locking's body=None) keeps the thumbnail in step — no write path can
-    forget it."""
+    locking's body=None) keeps the derived columns in step — no write path
+    can forget them."""
     target.thumb = first_image_src(value)
+    target.has_open_tasks = has_unchecked_task(value)

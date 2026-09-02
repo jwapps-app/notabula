@@ -24,21 +24,20 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
 
+    # One query for the whole check (this runs on every authenticated
+    # request): token → live session → user, joined.
     result = await db.execute(
-        select(Session).where(Session.token_hash == hash_token(credentials.credentials))
-    )
-    session = result.scalar_one_or_none()
-    if session is None or session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(
-        timezone.utc
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        select(User)
+        .join(Session, Session.user_id == User.id)
+        .where(
+            Session.token_hash == hash_token(credentials.credentials),
+            Session.expires_at > datetime.now(timezone.utc),
         )
-
-    user = await db.get(User, session.user_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
         )
     return user
 

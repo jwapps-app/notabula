@@ -9,7 +9,8 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import DB, CurrentUser
 from app.models import LinkPreview
@@ -52,13 +53,15 @@ async def preview(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid URL"
         )
 
-    # Plain equality (portable — the sqlite test DB has no md5()); uniqueness
-    # is enforced in Postgres by the md5(url) expression index, which exists
-    # because a unique btree on the raw 2048-char column can exceed the btree
-    # row limit. The cache table is small, so an unindexed lookup is fine.
-    row = (
-        await db.execute(select(LinkPreview).where(LinkPreview.url == url))
-    ).scalar_one_or_none()
+    # Uniqueness (and the only index) is the md5(url) expression index from
+    # migration 0016 — a btree on the raw 2048-char column can exceed the
+    # row limit — so look up through md5 too, or the query seq-scans the
+    # cache. SQLite (tests) has no md5(): plain equality there.
+    if db.get_bind().dialect.name == "postgresql":
+        match = func.md5(LinkPreview.url) == func.md5(url)
+    else:
+        match = LinkPreview.url == url
+    row = (await db.execute(select(LinkPreview).where(match))).scalar_one_or_none()
     now = datetime.now(timezone.utc)
     if row and row.fetched_at.replace(tzinfo=timezone.utc) > now - REFRESH_AFTER:
         return _out(row)
@@ -68,14 +71,26 @@ async def preview(
     # Safe: expire_on_commit=False, and nothing is pending yet.
     await db.commit()
     data = await fetch_preview(url)
+    fields = {
+        "title": (data or {}).get("title"),
+        "description": (data or {}).get("description"),
+        "image_url": (data or {}).get("image_url"),
+        "site_name": (data or {}).get("site_name"),
+        "ok": data is not None,
+        "fetched_at": now,
+    }
     if row is None:
-        row = LinkPreview(url=url)
-        db.add(row)
-    row.title = (data or {}).get("title")
-    row.description = (data or {}).get("description")
-    row.image_url = (data or {}).get("image_url")
-    row.site_name = (data or {}).get("site_name")
-    row.ok = data is not None
-    row.fetched_at = now
+        row = LinkPreview(url=url, **fields)
+        try:
+            async with db.begin_nested():
+                db.add(row)
+                await db.flush()
+        except IntegrityError:
+            # Lost a race with a concurrent first preview of this URL — the
+            # unique index caught it; serve the row that won.
+            row = (await db.execute(select(LinkPreview).where(match))).scalar_one()
+        return _out(row)
+    for name, value in fields.items():
+        setattr(row, name, value)
     await db.flush()
     return _out(row)

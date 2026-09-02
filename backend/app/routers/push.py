@@ -4,6 +4,7 @@ subscriptions (installed PWA). Both are per-user and idempotent."""
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import DB, CurrentUser
 from app.models import Device, PushSubscription
@@ -30,11 +31,20 @@ async def register_device(payload: DeviceIn, user: CurrentUser, db: DB) -> None:
         await db.execute(select(Device).where(Device.token == payload.token))
     ).scalar_one_or_none()
     if existing is None:
-        db.add(Device(user_id=user.id, token=payload.token, sandbox=payload.sandbox))
-    else:
-        # Token moved to another account (device signed in as someone else).
-        existing.user_id = user.id
-        existing.sandbox = payload.sandbox
+        try:
+            async with db.begin_nested():
+                db.add(Device(user_id=user.id, token=payload.token, sandbox=payload.sandbox))
+                await db.flush()
+            return
+        except IntegrityError:
+            # Registered concurrently (app launch fires this from more than
+            # one place) — fall through and update the row that won.
+            existing = (
+                await db.execute(select(Device).where(Device.token == payload.token))
+            ).scalar_one()
+    # Token moved to another account (device signed in as someone else).
+    existing.user_id = user.id
+    existing.sandbox = payload.sandbox
 
 
 @router.delete("/devices/{token}", status_code=204)
@@ -66,18 +76,29 @@ async def register_subscription(
         )
     ).scalar_one_or_none()
     if existing is None:
-        db.add(
-            PushSubscription(
-                user_id=user.id,
-                endpoint=payload.endpoint,
-                p256dh=payload.keys.p256dh,
-                auth=payload.keys.auth,
-            )
-        )
-    else:
-        existing.user_id = user.id
-        existing.p256dh = payload.keys.p256dh
-        existing.auth = payload.keys.auth
+        try:
+            async with db.begin_nested():
+                db.add(
+                    PushSubscription(
+                        user_id=user.id,
+                        endpoint=payload.endpoint,
+                        p256dh=payload.keys.p256dh,
+                        auth=payload.keys.auth,
+                    )
+                )
+                await db.flush()
+            return
+        except IntegrityError:
+            existing = (
+                await db.execute(
+                    select(PushSubscription).where(
+                        PushSubscription.endpoint == payload.endpoint
+                    )
+                )
+            ).scalar_one()
+    existing.user_id = user.id
+    existing.p256dh = payload.keys.p256dh
+    existing.auth = payload.keys.auth
 
 
 class SubscriptionDelete(BaseModel):

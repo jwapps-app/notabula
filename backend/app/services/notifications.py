@@ -124,10 +124,13 @@ async def fire_due_reminders(db: AsyncSession) -> int:
         .scalars()
         .all()
     )
+    if not due:
+        return 0
+    # Two queries for every owner in the batch, not two per note.
+    targets_by_user = await push_service.targets_for_users(db, {n.owner_id for n in due})
     for note in due:
-        await notify_user(
-            db,
-            note.owner_id,
+        push_service.deliver(
+            targets_by_user[note.owner_id],
             title="Reminder",
             body=_title(note),
             data={"type": "reminder", "note_id": str(note.id)},

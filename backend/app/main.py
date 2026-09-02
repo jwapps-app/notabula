@@ -43,7 +43,8 @@ app = FastAPI(
     description=settings.app_tagline,
     version="0.1.0",
     lifespan=lifespan,
-    debug=settings.debug,
+    # Never in production: debug=True returns full tracebacks to clients.
+    debug=settings.debug and not _is_prod,
     # Don't expose the full API surface to anonymous users in production.
     docs_url=None if _is_prod else "/docs",
     redoc_url=None if _is_prod else "/redoc",

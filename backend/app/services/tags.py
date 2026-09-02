@@ -9,7 +9,7 @@ now-orphaned tags.
 import re
 import uuid
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, exists, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Note, Tag, note_tags
@@ -26,11 +26,17 @@ def extract_tag_names(text: str) -> set[str]:
 
 
 async def sweep_orphan_tags(db: AsyncSession, owner_id: uuid.UUID) -> None:
-    """Drop the owner's tags that no longer appear on any note."""
+    """Drop the owner's tags that no longer appear on any note.
+
+    Correlated NOT EXISTS, so each of the owner's tags costs one probe of
+    the note_tags(tag_id) index — the previous `NOT IN (SELECT tag_id …)`
+    materialized every note_tags row on the server, for every user, on
+    every save.
+    """
     await db.execute(
         delete(Tag).where(
             Tag.owner_id == owner_id,
-            ~Tag.id.in_(select(note_tags.c.tag_id)),
+            ~exists().where(note_tags.c.tag_id == Tag.id),
         )
     )
 
@@ -46,8 +52,25 @@ async def sync_note_tags(
     Pass sweep_orphans=False inside bulk loops (import, tag rename) and call
     sweep_orphan_tags once at the end — otherwise the orphan cleanup runs
     once per note for no gain.
+
+    This runs on every autosave (~700 ms while typing), so the common case
+    — the hashtags didn't change — must cost one indexed read and nothing
+    else. Only a real change touches note_tags, and only a *removed* tag
+    can orphan anything, so the sweep runs just then.
     """
     names = sorted(extract_tag_names(note.body_text))[:MAX_TAGS_PER_NOTE]
+
+    current = set(
+        (
+            await db.execute(
+                select(Tag.name)
+                .join(note_tags, note_tags.c.tag_id == Tag.id)
+                .where(note_tags.c.note_id == note.id)
+            )
+        ).scalars()
+    )
+    if current == set(names):
+        return
 
     tags: list[Tag] = []
     if names:
@@ -77,5 +100,5 @@ async def sync_note_tags(
             [{"note_id": note.id, "tag_id": t.id} for t in tags],
         )
 
-    if sweep_orphans:
+    if sweep_orphans and (current - set(names)):
         await sweep_orphan_tags(db, owner_id)

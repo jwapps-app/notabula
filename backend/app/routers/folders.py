@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.core.deps import DB, CurrentUser
 from app.models import Folder, Note
@@ -136,12 +136,11 @@ async def delete_folder(folder_id: uuid.UUID, user: CurrentUser, db: DB) -> None
         frontier = [c for c in children if c not in seen]
         seen.update(frontier)
         doomed_ids.extend(frontier)
-    notes = (
-        await db.execute(select(Note).where(Note.folder_id.in_(doomed_ids)))
-    ).scalars()
-    for note in notes:
-        note.folder_id = default.id
-    await db.flush()
+    # One UPDATE — not a load of every note body in the subtree just to
+    # change a foreign key.
+    await db.execute(
+        update(Note).where(Note.folder_id.in_(doomed_ids)).values(folder_id=default.id)
+    )
     # Delete deepest-first explicitly — don't lean on DB cascade behavior.
     for fid in reversed(doomed_ids):
         doomed = await db.get(Folder, fid)

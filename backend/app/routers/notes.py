@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import Text, and_, cast, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import defer
 
 from app.core.deps import DB, CurrentUser
@@ -161,33 +161,26 @@ async def list_notes(
 
 async def _list_smart_view(db, user, view: str) -> list[NoteListItem]:
     """Automatic collections computed from note content — no filing needed.
-    Owner-scoped: smart views search my notes, like search does."""
-    body_text_col = cast(Note.body, Text)
+    Owner-scoped: smart views search my notes, like search does.
+
+    Media and tasks test derived columns the body listener maintains
+    (`thumb`, `has_open_tasks`) rather than casting every body to text and
+    LIKE-scanning it per request."""
     query = (
         select(Note)
         .options(defer(Note.body), defer(Note.cipher_body))
         .where(Note.owner_id == user.id, Note.deleted_at.is_(None))
     )
     if view == "media":
-        # ProseMirror image nodes; both JSON spacings for dialect safety.
-        query = query.where(
-            or_(
-                body_text_col.like('%"type": "image"%'),
-                body_text_col.like('%"type":"image"%'),
-            )
-        )
+        # thumb = first image src in the body, so non-null ⇔ has an image.
+        query = query.where(Note.thumb.is_not(None))
     elif view == "links":
         query = query.where(
             or_(Note.body_text.like("%http://%"), Note.body_text.like("%https://%"))
         )
     elif view == "tasks":
         # Notes with UNCHECKED to-dos — the cross-note "still undone" list.
-        query = query.where(
-            or_(
-                body_text_col.like('%"checked": false%'),
-                body_text_col.like('%"checked":false%'),
-            )
-        )
+        query = query.where(Note.has_open_tasks.is_(True))
     elif view == "locked":
         query = query.where(Note.locked.is_(True))
     elif view == "recent":
@@ -223,6 +216,7 @@ async def _list_shared_notes(db, user) -> list[NoteListItem]:
             ),
         )
         .order_by(Note.pinned.desc(), Note.updated_at.desc())
+        .limit(MAX_LIST)
     )
     items = []
     for note, owner_name in result.all():
@@ -252,6 +246,7 @@ async def _list_shared_folder_notes(db, user, folder: Folder) -> list[NoteListIt
             Note.locked.is_(False),  # locked notes stay owner-only
         )
         .order_by(Note.pinned.desc(), Note.updated_at.desc())
+        .limit(MAX_LIST)
     )
     return [
         _list_item(n, role=share, owner_name=owner.name if owner else None)
