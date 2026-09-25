@@ -38,7 +38,6 @@ Portainer pulls them and runs the stack in `docker-compose.portainer.yml`.
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `POSTGRES_PASSWORD` | ✅ | — | strong password |
-| `SECRET_KEY` | ✅ | — | `python3 -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `WEB_PORT` | | `8210` | host port nginx is published on |
 | `APP_URL` | | `https://notes.example.com` | public URL (display only) |
 | `DATA_DIR` | | `/volume1/docker/notabula` | Postgres bind mount parent |

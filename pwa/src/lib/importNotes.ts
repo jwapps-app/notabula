@@ -54,7 +54,8 @@ export async function importFromZip(file: File): Promise<ImportResult> {
     const ext = filename.split('.').pop()?.toLowerCase() ?? 'png'
     const mime =
       { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
-        webp: 'image/webp', heic: 'image/heic', svg: 'image/svg+xml' }[ext] ?? 'image/png'
+        webp: 'image/webp', heic: 'image/heic', svg: 'image/svg+xml',
+        pdf: 'application/pdf' }[ext] ?? 'image/png'
     try {
       const up = await api.uploadAttachment(new File([blob], filename, { type: mime }))
       urlMap.set(`/media/attachments/${filename}`, up.url)

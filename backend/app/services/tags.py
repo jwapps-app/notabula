@@ -10,6 +10,7 @@ import re
 import uuid
 
 from sqlalchemy import delete, exists, insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Note, Tag, note_tags
@@ -19,10 +20,17 @@ from app.models import Note, Tag, note_tags
 _TAG_RE = re.compile(r"#([\w-]*[^\W\d_][\w-]*)", re.UNICODE)
 
 MAX_TAGS_PER_NOTE = 50
+# tags.name is String(100). Postgres enforces it; SQLite doesn't — so bound
+# it here, or a 101-char hashtag saves fine in tests and 500s in production.
+MAX_TAG_LENGTH = 100
 
 
 def extract_tag_names(text: str) -> set[str]:
-    return {m.group(1).lower() for m in _TAG_RE.finditer(text or "")}
+    return {
+        name
+        for m in _TAG_RE.finditer(text or "")
+        if len(name := m.group(1).lower()) <= MAX_TAG_LENGTH
+    }
 
 
 async def sweep_orphan_tags(db: AsyncSession, owner_id: uuid.UUID) -> None:
@@ -82,16 +90,23 @@ async def sync_note_tags(
                 )
             ).scalars()
         }
-        new = []
         for name in names:
             tag = existing.get(name)
             if tag is None:
                 tag = Tag(owner_id=owner_id, name=name)
-                db.add(tag)
-                new.append(tag)
+                try:
+                    async with db.begin_nested():
+                        db.add(tag)
+                        await db.flush()  # assign the id
+                except IntegrityError:
+                    # Another save created the same tag concurrently — the
+                    # unique (owner, name) index caught it; use theirs.
+                    tag = (
+                        await db.execute(
+                            select(Tag).where(Tag.owner_id == owner_id, Tag.name == name)
+                        )
+                    ).scalar_one()
             tags.append(tag)
-        if new:
-            await db.flush()  # assign ids to freshly created tags
 
     await db.execute(delete(note_tags).where(note_tags.c.note_id == note.id))
     if tags:

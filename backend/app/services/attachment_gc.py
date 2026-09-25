@@ -68,10 +68,9 @@ async def purge_orphan_attachments(db: AsyncSession) -> int:
         .scalars()
         .all()
     )
-    if not candidates:
-        return await _sweep_unclaimed_files(db, cutoff)
-
     referenced = await _referenced_stored_names(db)
+    if not candidates:
+        return await _sweep_unclaimed_files(db, cutoff, referenced)
     # Owners with locked notes: references may hide inside cipher_body, which
     # we can't scan — never GC their attachments.
     locked_owners = set(
@@ -91,13 +90,20 @@ async def purge_orphan_attachments(db: AsyncSession) -> int:
         await db.delete(attachment)
         removed += 1
 
-    removed += await _sweep_unclaimed_files(db, cutoff)
+    removed += await _sweep_unclaimed_files(db, cutoff, referenced)
     return removed
 
 
-async def _sweep_unclaimed_files(db: AsyncSession, cutoff: datetime) -> int:
+async def _sweep_unclaimed_files(
+    db: AsyncSession, cutoff: datetime, referenced: set[str]
+) -> int:
     """Delete media files that no attachment row claims — e.g. left behind
-    by a user deletion, whose rows cascaded away with the account."""
+    by a user deletion, whose rows cascaded away with the account.
+
+    A file with no row can still be IN USE: the uploader's account was
+    deleted but their image sits in a note they had shared with someone
+    else, who kept it. So "unclaimed" means no row AND no note or revision
+    body references it."""
     media_dir = Path(settings.media_root) / "attachments"
     if not media_dir.is_dir():
         return 0
@@ -106,7 +112,7 @@ async def _sweep_unclaimed_files(db: AsyncSession, cutoff: datetime) -> int:
 
     removed = 0
     for path in media_dir.iterdir():
-        if not path.is_file() or path.name in known:
+        if not path.is_file() or path.name in known or path.name in referenced:
             continue
         try:
             mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)

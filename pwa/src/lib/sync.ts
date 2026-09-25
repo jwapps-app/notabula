@@ -8,16 +8,48 @@
  * person's session stays in history, redline-diffable and restorable.
  */
 import { ApiError, OfflineError, api } from './api'
+import type { NoteOut } from './api'
 import {
+  LOCAL_ID_PREFIX,
   cacheNote,
   getCachedNote,
   listPending,
   pendingCount,
+  queueCreate,
   removeCachedNote,
   removePending,
 } from './offline'
 
 let syncing = false
+
+/** Did the person keep editing this note while its upload was on the wire?
+ * The queue holds a reference to the mutable cached note, not a snapshot,
+ * so "what we sent" and "what's cached now" can differ. */
+async function editedSince(sent: NoteOut): Promise<NoteOut | null> {
+  const now = await getCachedNote(sent.id)
+  if (!now) return null
+  return now.updated_at !== sent.updated_at ? now : null
+}
+
+/** The content of a note the server no longer accepts (deleted, unshared)
+ * is unique if it was never uploaded. Rather than dropping it, it becomes a
+ * brand-new offline note of the person's own — nothing typed is lost. */
+async function salvageAsNewNote(note: NoteOut): Promise<void> {
+  const hasContent = note.locked ? !!note.cipher_body : !!note.body_text.trim()
+  await removeCachedNote(note.id)
+  if (!hasContent) return
+  const local: NoteOut = {
+    ...note,
+    id: `${LOCAL_ID_PREFIX}${crypto.randomUUID()}`,
+    title: note.title || 'Recovered note',
+    role: 'owner',
+    owner_name: null,
+    deleted_at: null,
+    version: 0,
+  }
+  await cacheNote(local)
+  await queueCreate(local.id)
+}
 
 /** Push the pending queue. Returns true if anything was applied. */
 export async function syncPending(): Promise<boolean> {
@@ -63,14 +95,34 @@ export async function syncPending(): Promise<boolean> {
               ...content,
             })
           } else if (err instanceof ApiError && err.status === 404) {
-            // Note was deleted/unshared while we were offline — drop the op
-            // (the content survives in the owner's trash/history).
+            // Deleted or unshared while we were offline. Anything typed
+            // here was never uploaded, so it can't be "in the trash" —
+            // keep it as a new note of our own instead of dropping it.
             await removePending(op.seq!)
-            await removeCachedNote(op.noteId)
+            await salvageAsNewNote(note)
+            applied = true
+            continue
+          } else if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
+            // The server has permanently refused this content (too large,
+            // malformed, no longer permitted). Retrying forever would only
+            // block every op queued behind it — drop the op but keep the
+            // cached note, so the text is still on screen to rescue.
+            console.warn(`sync: server rejected note ${op.noteId} (${err.status}); leaving it local`)
+            await removePending(op.seq!)
             continue
           } else {
             throw err
           }
+        }
+        // Acknowledge only what was actually sent. If typing continued
+        // during the request, the cache now holds newer text: keep it (with
+        // the server's new version so the next push isn't a 409) and leave
+        // the op queued for another round.
+        const newer = await editedSince(note)
+        if (newer) {
+          await cacheNote({ ...newer, version: updated.version })
+          applied = true
+          continue
         }
         await cacheNote(updated)
       }

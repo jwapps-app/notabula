@@ -100,12 +100,17 @@ async def rename_tag(
     if tag is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
 
+    # Row-lock the notes for the rewrite, in id order: a concurrent normal
+    # save takes the same lock, so it can't slip between our read and our
+    # version bump and be clobbered by a stale snapshot.
     notes = (
         (
             await db.execute(
                 select(Note)
                 .join(note_tags, note_tags.c.note_id == Note.id)
                 .where(note_tags.c.tag_id == tag.id, Note.locked.is_(False))
+                .order_by(Note.id)
+                .with_for_update()
             )
         )
         .scalars()

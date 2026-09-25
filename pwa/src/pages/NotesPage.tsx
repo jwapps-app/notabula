@@ -14,6 +14,7 @@ import {
   getCachedFolders,
   getCachedNote,
   getCachedNotes,
+  hasPending,
   hydrateNotes,
   queueCreate,
 } from '../lib/offline'
@@ -581,6 +582,18 @@ export default function NotesPage() {
 
   async function handleSelectNote(id: string) {
     let note: NoteOut
+    // A note with a queued offline edit is authoritative on THIS device:
+    // open the local copy. Fetching the server's (older) copy and caching
+    // it here would overwrite the unsynced text while its queue entry
+    // survived — and the next sync would upload the stale version.
+    if (await hasPending(id)) {
+      const cached = await getCachedNote(id)
+      if (cached) {
+        setOpenNote(cached)
+        setMobilePane('editor')
+        return
+      }
+    }
     try {
       note = await api.getNote(id)
       void cacheNote(note) // cache the ciphertext form, never the decrypted one

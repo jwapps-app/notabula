@@ -113,16 +113,26 @@ async def _send_apns(token: str, sandbox: bool, title: str, body: str, data: dic
         resp.raise_for_status()
 
 
+def vapid_signer():
+    """The py_vapid signer for our key. pywebpush's `vapid_private_key`
+    takes a Vapid instance or a *file path* — never raw PEM text (it tries
+    to base64-decode that and raises), so build the instance ourselves."""
+    from py_vapid import Vapid
+
+    return Vapid.from_pem(get_vapid()["private_key"].encode())
+
+
 def _send_webpush_sync(subscription: dict, payload: str) -> None:
     from pywebpush import webpush
 
-    vapid = get_vapid()
     webpush(
         subscription_info=subscription,
         data=payload,
-        vapid_private_key=vapid["private_key"],
+        vapid_private_key=vapid_signer(),
         vapid_claims={"sub": settings.vapid_subject},
         ttl=3600,
+        # Never let a hung push service pin a worker thread indefinitely.
+        timeout=10,
     )
 
 
@@ -146,6 +156,8 @@ async def _deliver_one_webpush(subscription: dict, payload: str) -> None:
                 await db.commit()
         else:
             logger.warning("web push failed (%s): %s", status, exc)
+    except Exception as exc:  # noqa: BLE001 — one bad recipient must not stop the rest
+        logger.warning("web push failed: %s", exc)
 
 
 async def _deliver_task(targets: Targets, title: str, body: str, data: dict) -> None:

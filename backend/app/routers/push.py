@@ -1,14 +1,18 @@
 """Push target registration — APNs devices (native app) and Web Push
 subscriptions (installed PWA). Both are per-user and idempotent."""
 
+import ipaddress
+from urllib.parse import urlparse
+
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import DB, CurrentUser
 from app.models import Device, PushSubscription
 from app.services.push import get_vapid
+from app.services.unfurl import _ip_is_public
 
 router = APIRouter(prefix="/push", tags=["push"])
 
@@ -62,6 +66,23 @@ class SubscriptionKeys(BaseModel):
 class SubscriptionIn(BaseModel):
     endpoint: str = Field(min_length=1, max_length=1024)
     keys: SubscriptionKeys
+
+    @field_validator("endpoint")
+    @classmethod
+    def only_public_https(cls, v: str) -> str:
+        # The server will POST to this URL on every notification, so it is
+        # an outbound-request primitive: HTTPS only (every real push service
+        # is), and never a literal private/loopback address.
+        p = urlparse(v)
+        if p.scheme != "https" or not p.hostname:
+            raise ValueError("Push endpoint must be an https URL")
+        try:
+            ip = ipaddress.ip_address(p.hostname)
+        except ValueError:
+            return v  # a hostname, not an IP literal
+        if not _ip_is_public(ip):
+            raise ValueError("Push endpoint must be a public address")
+        return v
 
 
 @router.post("/subscriptions", status_code=204)

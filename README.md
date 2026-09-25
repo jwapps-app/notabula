@@ -18,7 +18,7 @@ A self-hosted, multi-user notes app modeled on iOS Notes — live WYSIWYG editin
 ```bash
 cp .env.example .env
 cp backend/.env.example backend/.env
-# edit both: set a real POSTGRES_PASSWORD and SECRET_KEY
+# edit both: set a real POSTGRES_PASSWORD
 
 (cd pwa && npm install && npm run build)
 docker compose up -d --build
@@ -26,7 +26,7 @@ docker compose up -d --build
 open http://localhost:8200
 ```
 
-Register the first account — it becomes the admin. Set `ALLOW_REGISTRATION=false` in `backend/.env` once everyone you want has an account.
+Register the first account — it becomes the admin, and registration closes by itself. Admins add everyone else from Settings → Users.
 
 Deploying to a NAS / server with prebuilt images: see [DEPLOY.md](DEPLOY.md).
 

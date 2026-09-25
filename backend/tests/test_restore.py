@@ -78,8 +78,14 @@ async def test_restore_orchestration(auth, tmp_path, monkeypatch):
     async def fake_migrations():
         calls.append("migrate")
 
+    async def fake_invalidate(engine):
+        calls.append("sessions")
+
     monkeypatch.setattr(admin_router, "restore_database", fake_restore)
     monkeypatch.setattr(admin_router, "run_migrations", fake_migrations)
+    # Disposing the engine destroys the in-memory SQLite DB; the real sweep
+    # is covered in test_audit2_fixes.
+    monkeypatch.setattr(admin_router, "invalidate_all_sessions", fake_invalidate)
 
     client, admin_headers, _ = auth
     resp = await client.post(
@@ -96,7 +102,7 @@ async def test_restore_orchestration(auth, tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     assert resp.json() == {"restored": True, "media_files": 1}
-    assert calls == ["db", "migrate"]
+    assert calls == ["db", "migrate", "sessions"]
     assert (tmp_path / "media" / "attachments" / "a.jpg").exists()
 
 

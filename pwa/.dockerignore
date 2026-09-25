@@ -1,0 +1,11 @@
+# The image runs `npm ci` itself; a host node_modules (possibly for a
+# different OS/arch) must never be copied over it. dist is rebuilt too.
+node_modules
+dist
+dev-dist
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.dockerignore

@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.orm import defer
 
 from app.core.deps import DB, CurrentUser
@@ -237,6 +237,9 @@ async def _list_shared_folder_notes(db, user, folder: Folder) -> list[NoteListIt
     if share is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
     owner = await db.get(User, folder.owner_id)
+    # Same resolver as opening the note: a direct note share outranks the
+    # folder share, so the list can't advertise a role the note won't honor.
+    note_roles, folder_roles = await share_maps(db, user)
     result = await db.execute(
         select(Note)
         .options(defer(Note.body), defer(Note.cipher_body))
@@ -249,7 +252,11 @@ async def _list_shared_folder_notes(db, user, folder: Folder) -> list[NoteListIt
         .limit(MAX_LIST)
     )
     return [
-        _list_item(n, role=share, owner_name=owner.name if owner else None)
+        _list_item(
+            n,
+            role=resolved_role(n, user.id, note_roles, folder_roles) or share,
+            owner_name=owner.name if owner else None,
+        )
         for n in result.scalars()
     ]
 
@@ -535,6 +542,11 @@ async def update_note(
         note.body = None
         note.body_text = ""
         await sync_note_tags(db, note, note.owner_id)  # clears tags
+        # A locked note's promise is that the server holds no plaintext.
+        # Its pre-lock history is plaintext, so it goes too — otherwise a
+        # stolen session or a database read could recover the body from
+        # /revisions. History resumes from the moment it's unlocked.
+        await db.execute(delete(NoteRevision).where(NoteRevision.note_id == note.id))
         if payload.title is not None:
             note.title = payload.title
     elif lock_change and not payload.locked:
@@ -614,23 +626,31 @@ async def delete_note(
     permanent: bool = Query(default=False),
 ) -> None:
     """Soft delete → Recently Deleted; `permanent=true` removes for good.
-    Owner only — shared users never delete someone else's note."""
+    Owner only — shared users never delete someone else's note.
+
+    Soft delete is idempotent: repeating it on a note already in the trash
+    is a no-op, never an escalation. (A client retrying after a lost
+    response — the iOS sync engine does exactly this — must not turn a
+    reversible delete into a permanent one.)"""
     note, role = await _accessible_note(db, user, note_id)
     if role != "owner":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the owner can delete this note",
         )
-    if permanent or note.deleted_at is not None:
+    if permanent:
         await db.delete(note)
-    else:
+    elif note.deleted_at is None:
         note.deleted_at = datetime.now(timezone.utc)
 
 
 @router.get("/{note_id}/revisions", response_model=list[RevisionListItem])
 async def list_revisions(note_id: uuid.UUID, user: CurrentUser, db: DB) -> list[RevisionListItem]:
-    """Edit history, newest first. Anyone with access may read it."""
-    await _accessible_note(db, user, note_id)
+    """Edit history, newest first. Anyone with access may read it — except
+    while the note is locked, when there is (by design) no history."""
+    note, _ = await _accessible_note(db, user, note_id)
+    if note.locked:
+        return []
     result = await db.execute(
         select(NoteRevision, User.name)
         .join(User, User.id == NoteRevision.editor_id, isouter=True)
@@ -653,7 +673,9 @@ async def list_revisions(note_id: uuid.UUID, user: CurrentUser, db: DB) -> list[
 async def get_revision(
     note_id: uuid.UUID, revision_id: uuid.UUID, user: CurrentUser, db: DB
 ) -> RevisionDetail:
-    await _accessible_note(db, user, note_id)
+    note, _ = await _accessible_note(db, user, note_id)
+    if note.locked:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Revision not found")
     row = (
         await db.execute(
             select(NoteRevision, User.name)

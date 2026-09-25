@@ -55,8 +55,23 @@ function db(): Promise<IDBPDatabase<OfflineSchema>> {
 
 // --- Notes cache ---------------------------------------------------------
 
+/** The only form a locked note may take on disk: ciphertext, no plaintext.
+ * Enforced here — at the single write path — rather than trusting every
+ * caller, because the editor legitimately holds a decrypted copy in React
+ * state and one of them (the offline-save path) used to hand that copy in. */
+function persistable(note: NoteOut): NoteOut {
+  if (!note.locked) return note
+  return { ...note, body: null, body_text: '' }
+}
+
 export async function cacheNote(note: NoteOut): Promise<void> {
-  await (await db()).put('notes', note)
+  await (await db()).put('notes', persistable(note))
+}
+
+/** Whether a note has a queued create/edit that hasn't reached the server. */
+export async function hasPending(noteId: string): Promise<boolean> {
+  const ops = await (await db()).getAllFromIndex('pending', 'byNote', noteId)
+  return ops.length > 0
 }
 
 export async function getCachedNote(id: string): Promise<NoteOut | undefined> {
@@ -87,7 +102,7 @@ export async function hydrateNotes(fresh: NoteOut[]): Promise<void> {
     }
   }
   for (const note of fresh) {
-    if (!pendingIds.has(note.id)) await tx.store.put(note)
+    if (!pendingIds.has(note.id)) await tx.store.put(persistable(note))
   }
   await tx.done
 }
@@ -131,7 +146,11 @@ export async function pendingCount(): Promise<number> {
 }
 
 /** Wipe everything — called on logout and on user switch so cached notes
- * never outlive the session on a shared device. */
+ * never outlive the session on a shared device. That includes the service
+ * worker's runtime caches: they hold raw API responses (note bodies,
+ * shared lists) and attachment images keyed by URL alone, so without this
+ * the next person to sign in on this browser could be served the previous
+ * account's data whenever the network is slow or down. */
 export async function clearOfflineCache(): Promise<void> {
   const d = await db()
   const tx = d.transaction(['notes', 'folders', 'pending'], 'readwrite')
@@ -141,4 +160,7 @@ export async function clearOfflineCache(): Promise<void> {
     tx.objectStore('pending').clear(),
   ])
   await tx.done
+  if (typeof caches !== 'undefined') {
+    await Promise.all([caches.delete('api'), caches.delete('media')]).catch(() => {})
+  }
 }

@@ -13,6 +13,21 @@
  */
 import { Mark, mergeAttributes } from '@tiptap/core'
 
+/** Only hrefs that can't run script. Documents arrive from imports, shares
+ * and other clients, so a stored mark is untrusted input; `javascript:`
+ * (and friends) must never reach an <a href>. Relative paths cover our own
+ * attachments. */
+export function isSafeHref(href: unknown): href is string {
+  if (typeof href !== 'string' || !href) return false
+  if (href.startsWith('/') && !href.startsWith('//')) return true
+  try {
+    const { protocol } = new URL(href)
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:'
+  } catch {
+    return false
+  }
+}
+
 export const Link = Mark.create({
   name: 'link',
   priority: 1000,
@@ -32,10 +47,13 @@ export const Link = Mark.create({
 
   renderHTML({ HTMLAttributes }) {
     // Same class the linkify decoration uses, so stored and decorated links
-    // look identical.
+    // look identical. An unsafe href renders as plain styled text: the mark
+    // survives the round-trip, but the browser never sees the URL.
+    const { href, ...rest } = HTMLAttributes
     return [
       'a',
-      mergeAttributes(HTMLAttributes, {
+      mergeAttributes(rest, {
+        ...(isSafeHref(href) ? { href } : {}),
         class: 'note-link',
         rel: 'noopener noreferrer',
       }),

@@ -7,6 +7,15 @@ import type { LinkPreviewOut } from './api'
 const cache = new Map<string, LinkPreviewOut | null>()
 const pending = new Set<string>()
 
+// Off while a LOCKED note is open. Its body is encrypted precisely so the
+// server never sees it — asking the server to unfurl every URL inside it
+// would hand over those URLs (which can carry document ids or bearer
+// query strings) and persist them in the shared preview cache.
+let enabled = true
+export function setPreviewsEnabled(on: boolean): void {
+  enabled = on
+}
+
 export function getPreview(url: string): LinkPreviewOut | null | undefined {
   return cache.get(url)
 }
@@ -14,7 +23,7 @@ export function getPreview(url: string): LinkPreviewOut | null | undefined {
 /** Kick off a fetch if needed; `onReady` fires once the result is cached
  * (so the editor can re-render its decorations). No-op if already loading. */
 export function loadPreview(url: string, onReady: () => void): void {
-  if (cache.has(url) || pending.has(url)) return
+  if (!enabled || cache.has(url) || pending.has(url)) return
   pending.add(url)
   api
     .linkPreview(url)

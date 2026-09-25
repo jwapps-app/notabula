@@ -77,7 +77,19 @@ async def update_folder(
         )
     if payload.name is not None:
         folder.name = payload.name.strip()
+    if "parent_id" in payload.model_fields_set and payload.parent_id is None:
+        # Explicit null: move back to the root. (The default folder is
+        # always at the root, so this is a no-op for it.)
+        folder.parent_id = None
     if payload.parent_id is not None:
+        if folder.is_default:
+            # The default folder is the safety net every deleted folder's
+            # notes fall into. Nesting it would let a parent's deletion
+            # sweep it — and its notes — away with the subtree.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The default folder cannot be moved into another folder",
+            )
         if payload.parent_id == folder.id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -136,6 +148,14 @@ async def delete_folder(folder_id: uuid.UUID, user: CurrentUser, db: DB) -> None
         frontier = [c for c in children if c not in seen]
         seen.update(frontier)
         doomed_ids.extend(frontier)
+    if default.id in doomed_ids:
+        # Belt and braces (the move guard above should make this impossible
+        # for new data): the subtree contains the folder the notes are about
+        # to be moved INTO, so deleting it would cascade-delete them.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This folder contains your default Notes folder; move it out first",
+        )
     # One UPDATE — not a load of every note body in the subtree just to
     # change a foreign key.
     await db.execute(

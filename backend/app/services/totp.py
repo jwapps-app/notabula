@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import pyotp
 import qrcode
-from sqlalchemy import delete, select
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -76,15 +76,16 @@ async def verify_second_factor(db: AsyncSession, user: User, code: str) -> bool:
         if verify_totp_code(user.totp_secret, normalized):
             return True
 
+    # Consume atomically: the conditional UPDATE is the check. Two logins
+    # redeeming the same code at once can't both win — only one row update
+    # succeeds, because the WHERE re-tests used_at at write time.
     result = await db.execute(
-        select(TotpRecoveryCode).where(
+        update(TotpRecoveryCode)
+        .where(
             TotpRecoveryCode.user_id == user.id,
             TotpRecoveryCode.code_hash == hash_token(normalized),
             TotpRecoveryCode.used_at.is_(None),
         )
+        .values(used_at=datetime.now(timezone.utc))
     )
-    recovery = result.scalar_one_or_none()
-    if recovery is None:
-        return False
-    recovery.used_at = datetime.now(timezone.utc)
-    return True
+    return (result.rowcount or 0) == 1

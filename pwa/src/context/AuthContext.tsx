@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { api } from '../lib/api'
 import { clearOfflineCache, pendingCount } from '../lib/offline'
 import { setSessionPassphrase } from '../lib/noteCrypto'
+import { disablePush } from '../lib/push'
 import { syncPending } from '../lib/sync'
 import { clearSession, getSession, setSession } from '../lib/session'
 import type { SessionUser } from '../lib/session'
@@ -60,6 +61,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // cache unavailable — proceed with a normal logout
     }
+    // Stop this browser's push subscription from following the account out
+    // the door: a signed-out (or shared) device must not keep receiving
+    // notifications for it. Best-effort — the server also prunes it.
+    await disablePush().catch(() => {})
     try {
       await api.logout()
     } catch {

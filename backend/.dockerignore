@@ -1,0 +1,17 @@
+# Keep local-only files out of the image. Without this, `COPY . .` would
+# package the developer's .env (credentials) and the whole virtualenv.
+.env
+.env.*
+!.env.example
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+media
+tests
+.git
+.gitignore
+.dockerignore

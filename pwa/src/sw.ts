@@ -43,9 +43,18 @@ registerRoute(
 
 // API GETs — try network, fall back to cache when offline so folders and
 // recent notes still open without a connection.
+//
+// This cache is keyed by URL only, so it is per-BROWSER, not per-account.
+// Two guards keep one person's responses from reaching the next: the app
+// wipes it on every login/logout/register (see AuthContext), and account
+// and admin endpoints — whose responses are the most sensitive and the
+// least useful offline — are never cached at all.
+const NEVER_CACHE = /\/api\/v1\/(auth|admin|public|links|push)(\/|$)/i
 registerRoute(
   ({ url, request }) =>
-    /\/api\/v1\/.+/i.test(url.pathname) && request.method === 'GET',
+    /\/api\/v1\/.+/i.test(url.pathname) &&
+    request.method === 'GET' &&
+    !NEVER_CACHE.test(url.pathname),
   new NetworkFirst({
     cacheName: 'api',
     networkTimeoutSeconds: 5,

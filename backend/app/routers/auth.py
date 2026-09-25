@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
@@ -109,6 +109,12 @@ async def _create_session(db, user: User) -> str:
 async def register(payload: RegisterRequest, db: DB) -> SessionResult:
     """First-run bootstrap only: creates the admin account, then the door
     closes for good. All later accounts are created by an admin."""
+    if db.get_bind().dialect.name == "postgresql":
+        # Serialize bootstrap: two racing first registrations with different
+        # usernames would both see zero users and both become admin. The
+        # transaction-scoped advisory lock makes the second one wait, then
+        # see the first. (SQLite tests run single-connection anyway.)
+        await db.execute(text("SELECT pg_advisory_xact_lock(7241001)"))
     user_count = (await db.execute(select(func.count(User.id)))).scalar_one()
     if user_count > 0:
         raise HTTPException(
@@ -251,19 +257,27 @@ async def verify_password_check(
 async def change_password(
     payload: PasswordChangeRequest,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    request: Request,
     user: CurrentUser,
     db: DB,
 ) -> None:
     """Change my own password. Signs out every other device (but not this
-    one) — standard hygiene in case the change is because of a leak."""
+    one) and revokes the capture token — standard hygiene in case the
+    change is because of a leak. Throttled like login: a stolen session
+    must not get unlimited guesses at the current password here."""
+    key = (_client_ip(request), user.username)
+    _throttle_check(key)
     if not await verify_password_async(payload.current_password, user.password_hash):
+        _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
         )
+    _throttle_clear(key)
     if err := password_error(payload.new_password, settings.min_password_length):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
     user.password_hash = await hash_password_async(payload.new_password)
+    user.capture_token_hash = None
     current_hash = hash_token(credentials.credentials) if credentials else ""
     await db.execute(
         delete(Session).where(
@@ -315,7 +329,7 @@ async def totp_setup(user: CurrentUser, db: DB) -> TotpSetupResult:
 
 @router.post("/totp/enable", response_model=TotpEnableResult)
 async def totp_enable(
-    payload: TotpCodeRequest, user: CurrentUser, db: DB
+    payload: TotpCodeRequest, request: Request, user: CurrentUser, db: DB
 ) -> TotpEnableResult:
     if user.totp_enabled:
         raise HTTPException(
@@ -327,29 +341,39 @@ async def totp_enable(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Run setup first",
         )
+    key = (_client_ip(request), user.username)
+    _throttle_check(key)
     if not totp_service.verify_totp_code(user.totp_secret, payload.code.strip()):
+        _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid verification code",
         )
+    _throttle_clear(key)
     user.totp_enabled = True
     codes = await totp_service.issue_recovery_codes(db, user)
     return TotpEnableResult(recovery_codes=codes)
 
 
 @router.post("/totp/disable", status_code=204)
-async def totp_disable(payload: TotpCodeRequest, user: CurrentUser, db: DB) -> None:
+async def totp_disable(
+    payload: TotpCodeRequest, request: Request, user: CurrentUser, db: DB
+) -> None:
     """Turning 2FA off requires proving the second factor one last time."""
     if not user.totp_enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Two-factor is not enabled",
         )
+    key = (_client_ip(request), user.username)
+    _throttle_check(key)
     if not await totp_service.verify_second_factor(db, user, payload.code):
+        _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid verification code",
         )
+    _throttle_clear(key)
     user.totp_enabled = False
     user.totp_secret = None
     await db.execute(

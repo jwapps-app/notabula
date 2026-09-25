@@ -13,12 +13,15 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
+import { isSafeHref } from './link'
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/g
 const key = new PluginKey('pdfEmbed')
 
+/** A PDF we're willing to put in an iframe: the suffix test alone would
+ * accept `javascript:…#.pdf`, so the scheme is checked first. */
 function isPdf(href: string): boolean {
-  return /\.pdf(\?|#|$)/i.test(href)
+  return isSafeHref(href) && /\.pdf(\?|#|$)/i.test(href)
 }
 
 function fileName(href: string): string {

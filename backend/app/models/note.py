@@ -26,10 +26,10 @@ def first_image_src(body: dict | None) -> str | None:
     def walk(node) -> str | None:
         if isinstance(node, dict):
             if node.get("type") == "image":
-                src = (node.get("attrs") or {}).get("src")
+                src = _attrs(node).get("src")
                 if isinstance(src, str) and src:
                     return src[:2048]
-            for child in node.get("content") or []:
+            for child in _children(node):
                 found = walk(child)
                 if found:
                     return found
@@ -44,12 +44,26 @@ def has_unchecked_task(body: dict | None) -> bool:
 
     def walk(node) -> bool:
         if isinstance(node, dict):
-            if (node.get("attrs") or {}).get("checked") is False:
+            if _attrs(node).get("checked") is False:
                 return True
-            return any(walk(child) for child in node.get("content") or [])
+            return any(walk(child) for child in _children(node))
         return False
 
     return walk(body) if body else False
+
+
+# The body is client-supplied JSON. These walkers run inside the ORM's
+# attribute-set hook, so a malformed node (a string where `attrs` or
+# `content` should be) must degrade to "nothing found", never raise — an
+# exception here surfaces as a 500 from every write path at once.
+def _attrs(node: dict) -> dict:
+    attrs = node.get("attrs")
+    return attrs if isinstance(attrs, dict) else {}
+
+
+def _children(node: dict) -> list:
+    content = node.get("content")
+    return content if isinstance(content, list) else []
 
 
 class Note(UUIDPrimaryKeyMixin, TimestampMixin, Base):

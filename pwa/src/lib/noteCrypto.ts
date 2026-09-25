@@ -17,7 +17,16 @@ const enc = new TextEncoder()
 const dec = new TextDecoder()
 
 function toB64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
+  // Chunked: spreading a whole ciphertext into fromCharCode(...bytes) blows
+  // the JS argument limit (~65k–500k depending on the engine) — locking a
+  // note of a few hundred KB threw RangeError. 32 KB per call is safe
+  // everywhere.
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
 }
 
 function fromB64(b64: string): Uint8Array {

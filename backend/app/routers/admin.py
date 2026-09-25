@@ -25,6 +25,7 @@ from app.schemas.auth import RegisterRequest, UserOut
 from app.services.restore import (
     RestoreError,
     extract_media,
+    invalidate_all_sessions,
     restore_database,
     run_migrations,
 )
@@ -105,7 +106,10 @@ async def reset_password(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
     user = await _target_user(db, user_id)
     user.password_hash = await hash_password_async(payload.password)
-    # An admin reset invalidates every existing session for that account.
+    # An admin reset invalidates every existing session AND the capture
+    # token for that account — a reset means "assume the old credentials
+    # are compromised", and the capture token is one of them.
+    user.capture_token_hash = None
     await db.execute(delete(Session).where(Session.user_id == user.id))
 
 
@@ -184,8 +188,10 @@ async def restore_from_backup(
 ) -> dict:
     """Replace this server's ENTIRE contents with a nightly backup pair
     (db-*.dump + media-*.tar.gz). The dump restores inside a single
-    transaction, so a bad file changes nothing. Every session is part of
-    the backup, so all clients — including this one — sign in again."""
+    transaction, so a bad file changes nothing. Afterwards every session
+    is deleted — the ones in the dump included, since a token revoked
+    after the backup was taken must not come back to life — so all
+    clients, this one included, sign in again."""
     tmp_dir = Path(tempfile.mkdtemp(prefix="restore-"))
 
     def spool(upload: UploadFile, path: Path) -> None:
@@ -204,14 +210,15 @@ async def restore_from_backup(
             await asyncio.to_thread(spool, media_archive, media_path)
 
         # Release every pooled connection — pg_restore is about to drop
-        # the tables they're parked on.
-        from app.database import engine
-
+        # the tables they're parked on. (Take the engine from the session so
+        # the test suite's SQLite override is honored.)
+        engine = db.bind  # the AsyncEngine (get_bind() would hand back the sync core)
         await db.close()
         await engine.dispose()
 
         await restore_database(dump_path)
         await run_migrations()
+        await invalidate_all_sessions(engine)
         media_files = (
             await asyncio.to_thread(extract_media, media_path) if media_path else 0
         )

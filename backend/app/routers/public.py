@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.core.deps import DB
 from app.models import Note, NoteLink
+from app.schemas.note import MAX_BODY_TEXT
 from app.services.notifications import notify_guest_edited
 from app.services.revisions import record_revision
 from app.services.tags import sync_note_tags
@@ -35,7 +36,9 @@ class PublicNote(BaseModel):
 class PublicNoteUpdate(BaseModel):
     base_version: int
     body: dict | None = None
-    body_text: str | None = None
+    # Same ceiling as authenticated saves — an anonymous link holder gets no
+    # more room than an account does.
+    body_text: str | None = Field(default=None, max_length=MAX_BODY_TEXT)
     title: str | None = Field(default=None, max_length=400)
     # The name the guest gave themselves, shown in the note's history.
     guest_name: str | None = Field(default=None, max_length=80)

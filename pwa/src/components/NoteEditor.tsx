@@ -12,7 +12,8 @@ import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
 import { HashtagHighlight } from '../lib/hashtagHighlight'
 import { Linkify } from '../lib/linkify'
-import { Link } from '../lib/link'
+import { Link, isSafeHref } from '../lib/link'
+import { setPreviewsEnabled } from '../lib/linkPreview'
 import { PdfEmbed } from '../lib/pdfEmbed'
 import { ApiError, OfflineError, api } from '../lib/api'
 import type { FolderOut, NoteOut, RevisionDetail } from '../lib/api'
@@ -155,6 +156,7 @@ export default function NoteEditor({
   const versionRef = useRef(note.version)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRef = useRef(false)
+  const inFlightRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   // Bump to force toolbar re-render on selection/content changes.
   const [, setTick] = useState(0)
@@ -215,8 +217,10 @@ export default function NoteEditor({
           }
           // Click a stored link (e.g. an attached PDF) → open it. In an
           // editable view a click would otherwise just move the caret.
+          // Scheme-checked: the mark's renderer already drops unsafe hrefs,
+          // but the click handler must not be the weaker of the two.
           const href = target.closest?.('a[href]')?.getAttribute('href')
-          if (href) {
+          if (href && isSafeHref(href)) {
             window.open(href, '_blank', 'noopener')
             return true
           }
@@ -325,12 +329,18 @@ export default function NoteEditor({
 
   async function save(ed: Editor) {
     if (!pendingRef.current) return
+    // One request in flight per note. A second debounce firing while the
+    // first is still on the wire used to send the same base_version twice
+    // and turn our own autosave into a 409 against ourselves. Leave the
+    // dirty flag set; the in-flight save re-runs when it finishes.
+    if (inFlightRef.current) return
     pendingRef.current = false
     if (isLocal) {
       // Born offline — stays device-local until the sync engine creates it.
       await saveOffline(ed)
       return
     }
+    inFlightRef.current = true
     try {
       const updated = await api.updateNote(note.id, {
         base_version: versionRef.current,
@@ -341,21 +351,39 @@ export default function NoteEditor({
       onSaved(updated)
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        // Edited elsewhere — reload the authoritative copy rather than clobber.
+        // Edited elsewhere. Same policy as the offline sync engine: rebase
+        // onto the server's version and re-send OUR text (last writer wins,
+        // theirs stays in history). The old behaviour replaced the editor
+        // with the server copy and reported "saved" — the words the person
+        // was typing simply vanished.
         setStatus('conflict')
-        const fresh = await api.getNote(note.id)
-        versionRef.current = fresh.version
-        if (!fresh.locked) {
-          ed.commands.setContent((fresh.body as object) ?? '', false)
+        try {
+          const fresh = await api.getNote(note.id)
+          versionRef.current = fresh.version
+          const updated = await api.updateNote(note.id, {
+            base_version: fresh.version,
+            ...(await outgoingContent(ed)),
+          })
+          versionRef.current = updated.version
+          setStatus('saved')
+          onSaved(updated)
+        } catch {
+          // Still can't land it — keep the text safe on this device.
+          await saveOffline(ed)
         }
-        onSaved(fresh)
-        setStatus('saved')
       } else if (err instanceof OfflineError) {
         // Server unreachable — the note is safe on this device.
         await saveOffline(ed)
       } else {
-        setStatus('idle')
+        // Any other failure: the content must not evaporate with the
+        // request. Park it locally; the sync engine retries and surfaces
+        // a permanent rejection instead of silently going idle.
+        await saveOffline(ed)
       }
+    } finally {
+      inFlightRef.current = false
+      // Typing continued during the request → send the newer content now.
+      if (pendingRef.current) void save(ed)
     }
   }
 
@@ -488,6 +516,8 @@ export default function NoteEditor({
     if (!editor) return
     versionRef.current = note.version
     if (timerRef.current) clearTimeout(timerRef.current)
+    // Locked note: no server-side link unfurls for its (encrypted) content.
+    setPreviewsEnabled(!note.locked)
     // emitUpdate=false: loading a note must not fire onUpdate and autosave.
     editor.commands.setContent(isVeiled ? '' : ((note.body as object) ?? ''), false)
     editor.setEditable(!readOnly && !isVeiled, false) // no phantom onUpdate
@@ -877,8 +907,11 @@ export default function NoteEditor({
               ? undefined
               : (rev: RevisionDetail) => {
                   // Load the old content and let autosave persist it — the
-                  // restore itself becomes a new history entry.
-                  editor.commands.setContent((rev.body as object) ?? rev.body_text)
+                  // restore itself becomes a new history entry. `true` =
+                  // emit an update: without it setContent is silent, so
+                  // autosave never fired and the restore was lost on the
+                  // next navigation.
+                  editor.commands.setContent((rev.body as object) ?? rev.body_text, true)
                 }
           }
           onClose={() => setHistoryOpen(false)}
