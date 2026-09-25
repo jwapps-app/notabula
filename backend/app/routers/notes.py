@@ -261,19 +261,27 @@ async def _list_shared_folder_notes(db, user, folder: Folder) -> list[NoteListIt
     ]
 
 
-from pydantic import BaseModel, Field  # noqa: E402  (import endpoint schemas)
+from pydantic import BaseModel, Field, field_validator  # noqa: E402  (import endpoint schemas)
+
+from app.schemas.note import (  # noqa: E402
+    MAX_BODY_TEXT,
+    MAX_CIPHER_BODY,
+    validate_body,
+)
 
 
 class ImportNoteIn(BaseModel):
     folder: str = Field(default="Notes", max_length=200)
     title: str = Field(default="", max_length=400)
     body: dict | None = None
-    body_text: str = ""
+    body_text: str = Field(default="", max_length=MAX_BODY_TEXT)
     pinned: bool = False
     locked: bool = False
-    cipher_body: str | None = None
+    cipher_body: str | None = Field(default=None, max_length=MAX_CIPHER_BODY)
     created_at: datetime
     updated_at: datetime
+
+    _body = field_validator("body")(validate_body)
 
 
 class NotesImportRequest(BaseModel):
@@ -486,6 +494,81 @@ async def sync_notes(user: CurrentUser, db: DB) -> list[NoteOut]:
     return out
 
 
+class NoteChanges(BaseModel):
+    """Delta sync payload — see `sync_changes`."""
+
+    notes: list[NoteOut]
+    ids: list[uuid.UUID]
+    now: datetime
+
+
+# Re-fetch anything updated in the last few seconds before `since`, so a
+# write that committed just after the previous call's `now` was taken (its
+# updated_at is earlier than `now`) isn't missed. Upserts make the overlap
+# harmless.
+_SYNC_OVERLAP = timedelta(seconds=5)
+
+
+@router.get("/changes", response_model=NoteChanges)
+async def sync_changes(
+    user: CurrentUser,
+    db: DB,
+    since: str | None = Query(
+        default=None, description="The `now` from the previous call; omit for a full pull"
+    ),
+) -> NoteChanges:
+    """Incremental version of /sync for the native app.
+
+    `notes` carries, in full, every accessible live note changed since
+    `since` (all of them when `since` is absent). `ids` is the complete set
+    of accessible live note ids — cheap (16 bytes each) and it lets the
+    client reconcile hard deletes, trashing AND un-sharing with no
+    tombstone table: anything local that isn't in `ids` is gone. `now` is
+    what the client sends back next time.
+    """
+    now = datetime.now(timezone.utc)
+    note_roles, folder_roles = await share_maps(db, user)
+    accessible = or_(
+        Note.owner_id == user.id,
+        and_(
+            Note.locked.is_(False),
+            or_(
+                Note.id.in_(note_roles.keys()) if note_roles else False,
+                Note.folder_id.in_(folder_roles.keys()) if folder_roles else False,
+            ),
+        ),
+    )
+    ids = list(
+        (
+            await db.execute(select(Note.id).where(accessible, Note.deleted_at.is_(None)))
+        ).scalars()
+    )
+    changed = select(Note, User.name).join(User, User.id == Note.owner_id).where(
+        accessible, Note.deleted_at.is_(None)
+    )
+    if since:
+        # A '+' in a query string decodes to a space, so an unencoded
+        # "+00:00" offset arrives as " 00:00" — repair it before parsing.
+        try:
+            since_dt = datetime.fromisoformat(since.strip().replace(" ", "+"))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="since must be an ISO-8601 timestamp",
+            )
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+        changed = changed.where(Note.updated_at > since_dt - _SYNC_OVERLAP)
+    result = await db.execute(changed.order_by(Note.updated_at.desc()))
+    notes = []
+    for note, owner_name in result.all():
+        item = _note_out(note, resolved_role(note, user.id, note_roles, folder_roles))
+        if note.owner_id != user.id:
+            item.owner_name = owner_name
+        notes.append(item)
+    return NoteChanges(notes=notes, ids=ids, now=now)
+
+
 @router.get("/{note_id}", response_model=NoteOut)
 async def get_note(note_id: uuid.UUID, user: CurrentUser, db: DB) -> NoteOut:
     note, role = await _accessible_note(db, user, note_id)
@@ -574,7 +657,7 @@ async def update_note(
             note.cipher_body = payload.cipher_body
         if payload.title is not None:
             note.title = payload.title
-        if payload.pinned is not None:
+        if payload.pinned is not None and role == "owner":
             note.pinned = payload.pinned
     else:
         if payload.cipher_body is not None:
@@ -590,10 +673,16 @@ async def update_note(
             await sync_note_tags(db, note, note.owner_id)
         if payload.title is not None:
             note.title = payload.title
-        if payload.pinned is not None:
+        # Pin state is per-note (not per-viewer), so it is the owner's alone —
+        # a shared editor reordering the owner's list would be a surprise.
+        if payload.pinned is not None and role == "owner":
             note.pinned = payload.pinned
 
-    if "remind_at" in payload.model_fields_set:
+    # A reminder pushes the OWNER, so only the owner sets one. Non-owner
+    # values are ignored rather than rejected: the iOS client sends
+    # `pinned` and `remind_at` on every save regardless of role, and a 403
+    # here would strand every shared-note edit it makes.
+    if "remind_at" in payload.model_fields_set and role == "owner":
         note.remind_at = payload.remind_at
         note.reminded_at = None  # re-arm: a new time means a new reminder
 

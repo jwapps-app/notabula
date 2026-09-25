@@ -15,6 +15,10 @@ engine = create_async_engine(
     str(settings.database_url),
     echo=settings.sql_echo,
     pool_pre_ping=True,
+    # Postgres-side ceiling on any single statement, so a runaway query
+    # (a pathological scan, a lock wait) can't pin a pooled connection
+    # forever. Generous: a full /notes/sync for a large account must fit.
+    connect_args={"server_settings": {"statement_timeout": "60000"}},
 )
 
 AsyncSessionLocal = async_sessionmaker(

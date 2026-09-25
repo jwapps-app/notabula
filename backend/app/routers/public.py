@@ -9,13 +9,13 @@ editing safe: nothing is ever truly lost.
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.config import settings
 from app.core.deps import DB
 from app.models import Note, NoteLink
-from app.schemas.note import MAX_BODY_TEXT
+from app.schemas.note import MAX_BODY_TEXT, validate_body
 from app.services.notifications import notify_guest_edited
 from app.services.revisions import record_revision
 from app.services.tags import sync_note_tags
@@ -42,6 +42,8 @@ class PublicNoteUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=400)
     # The name the guest gave themselves, shown in the note's history.
     guest_name: str | None = Field(default=None, max_length=80)
+
+    _body = field_validator("body")(validate_body)
 
 
 async def _linked_note(db, token: str, *, for_update: bool = False) -> tuple[Note, NoteLink]:

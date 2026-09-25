@@ -1,13 +1,22 @@
 """TOTP two-factor: enrollment, login gate, recovery codes, disable."""
 
+from datetime import datetime, timedelta
+
 import pyotp
+
+
+def previous_step_code(secret: str) -> str:
+    """The code for the PREVIOUS 30 s step — still accepted (drift window)
+    but leaves the current step free, so a test can enroll and then log in
+    with `.now()` without tripping the single-use guard."""
+    return pyotp.TOTP(secret).at(datetime.now() - timedelta(seconds=30))
 
 
 async def _enroll(client, headers):
     """Run setup + enable; return (secret, recovery_codes)."""
     setup = (await client.post("/api/v1/auth/totp/setup", headers=headers)).json()
     secret = setup["secret"]
-    code = pyotp.TOTP(secret).now()
+    code = previous_step_code(secret)
     resp = await client.post(
         "/api/v1/auth/totp/enable", headers=headers, json={"code": code}
     )

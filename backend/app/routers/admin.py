@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
@@ -22,6 +22,7 @@ from app.core.deps import DB, get_current_user
 from app.core.security import hash_password_async, password_error
 from app.models import Folder, Session, TotpRecoveryCode, User
 from app.schemas.auth import RegisterRequest, UserOut
+from app.schemas.note import MAX_BODY_TEXT, validate_body
 from app.services.restore import (
     RestoreError,
     extract_media,
@@ -119,6 +120,7 @@ async def disable_user_totp(user_id: uuid.UUID, admin: AdminUser, db: DB) -> Non
     user = await _target_user(db, user_id)
     user.totp_enabled = False
     user.totp_secret = None
+    user.totp_last_counter = None
     await db.execute(
         delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user.id)
     )
@@ -127,10 +129,12 @@ async def disable_user_totp(user_id: uuid.UUID, admin: AdminUser, db: DB) -> Non
 class ImportNote(BaseModel):
     title: str = Field(default="", max_length=400)
     body: dict | None = None
-    body_text: str = ""
+    body_text: str = Field(default="", max_length=MAX_BODY_TEXT)
     created_at: datetime
     updated_at: datetime
     pinned: bool = False
+
+    _body = field_validator("body")(validate_body)
 
 
 class ImportRequest(BaseModel):

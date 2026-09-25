@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -32,6 +32,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     totp_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # The TOTP time-step of the last code accepted. A code is single-use:
+    # anything at or before this step is refused even if it's still inside
+    # the validity window, so a code seen over someone's shoulder (or on the
+    # wire) can't be replayed within its 30–90 s of life.
+    totp_last_counter: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Capture token: a revocable, capture-ONLY credential (SHA-256 hash
     # stored). Powers the iOS-Shortcut "Share to Notabula" link so that

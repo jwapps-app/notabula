@@ -343,7 +343,7 @@ async def totp_enable(
         )
     key = (_client_ip(request), user.username)
     _throttle_check(key)
-    if not totp_service.verify_totp_code(user.totp_secret, payload.code.strip()):
+    if not totp_service.consume_totp_code(user, payload.code.strip()):
         _throttle_fail(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -376,6 +376,7 @@ async def totp_disable(
     _throttle_clear(key)
     user.totp_enabled = False
     user.totp_secret = None
+    user.totp_last_counter = None
     await db.execute(
         delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user.id)
     )

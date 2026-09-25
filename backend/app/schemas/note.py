@@ -1,14 +1,35 @@
 """Note request/response schemas."""
 
+import json
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # A generous ceiling on note content: enough for very long notes, but a
 # bound so a single request can't bloat storage / the search vector or
 # stall the per-save hashtag regex with a multi-megabyte body.
 MAX_BODY_TEXT = 1_000_000
+# The ProseMirror JSON is what's actually stored (and snapshotted into up
+# to 100 revisions per note), so it gets its own ceiling. Twice the text
+# limit leaves room for markup around a maximal body_text.
+MAX_BODY_JSON = 2 * MAX_BODY_TEXT
+# Ciphertext of a locked note: base64 of the encrypted JSON, so ~4/3 of the
+# body ceiling plus the blob envelope.
+MAX_CIPHER_BODY = 4_000_000
+
+
+def validate_body(v: dict | None) -> dict | None:
+    """Shape and size check for a stored document. Bodies arrive from every
+    client and from imports, so 'a dict' is not enough: it must be a
+    ProseMirror doc, and it must fit."""
+    if v is None:
+        return v
+    if v.get("type") != "doc":
+        raise ValueError("body must be a ProseMirror document (type: doc)")
+    if len(json.dumps(v, separators=(",", ":"))) > MAX_BODY_JSON:
+        raise ValueError(f"body exceeds {MAX_BODY_JSON // 1_000_000} MB")
+    return v
 
 
 class NoteCreate(BaseModel):
@@ -16,6 +37,8 @@ class NoteCreate(BaseModel):
     body: dict | None = None
     body_text: str = Field(default="", max_length=MAX_BODY_TEXT)
     title: str = Field(default="", max_length=400)
+
+    _body = field_validator("body")(validate_body)
 
 
 class NoteUpdate(BaseModel):
@@ -32,7 +55,9 @@ class NoteUpdate(BaseModel):
     # locked=False with plaintext body decrypts; cipher_body alone re-saves
     # an already-locked note's content.
     locked: bool | None = None
-    cipher_body: str | None = None
+    cipher_body: str | None = Field(default=None, max_length=MAX_CIPHER_BODY)
+
+    _body = field_validator("body")(validate_body)
     # Reminder: a datetime sets it, explicit null clears it. Distinguished
     # from "not sent" via model_fields_set in the handler.
     remind_at: datetime | None = None

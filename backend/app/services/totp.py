@@ -8,7 +8,7 @@ this system, so recovery codes are the only self-service fallback).
 import base64
 import io
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pyotp
 import qrcode
@@ -42,8 +42,28 @@ def qr_png_base64(uri: str) -> str:
 
 
 def verify_totp_code(secret: str, code: str) -> bool:
-    # valid_window=1 tolerates ±30s of clock drift.
+    """Stateless check (±30 s drift). Prefer `consume_totp_code`, which also
+    refuses a code that has already been accepted."""
     return pyotp.TOTP(secret).verify(code, valid_window=1)
+
+
+def consume_totp_code(user: User, code: str) -> bool:
+    """Accept the code once. Finds which time-step (of the three we tolerate
+    for drift) the code belongs to, refuses it if that step is not newer
+    than the last accepted one, and records it otherwise."""
+    if not user.totp_secret:
+        return False
+    totp = pyotp.TOTP(user.totp_secret)
+    now = datetime.now(timezone.utc)
+    for offset in (0, -1, 1):
+        at = now + timedelta(seconds=offset * totp.interval)
+        if totp.verify(code, for_time=at, valid_window=0):
+            counter = totp.timecode(at)
+            if user.totp_last_counter is not None and counter <= user.totp_last_counter:
+                return False  # replay: this step (or a later one) was already used
+            user.totp_last_counter = counter
+            return True
+    return False
 
 
 def _normalize(code: str) -> str:
@@ -73,7 +93,7 @@ async def verify_second_factor(db: AsyncSession, user: User, code: str) -> bool:
     # recovery code can be all digits too, so if the TOTP check fails, still
     # fall through to the recovery-code lookup rather than rejecting.
     if len(normalized) == 6 and normalized.isdigit() and user.totp_secret:
-        if verify_totp_code(user.totp_secret, normalized):
+        if consume_totp_code(user, normalized):
             return True
 
     # Consume atomically: the conditional UPDATE is the check. Two logins
