@@ -128,6 +128,22 @@ const PATHS: Record<string, ReactElement> = {
       <polyline points="13 16 17 20 21 16" />
     </>
   ),
+  indent: (
+    <>
+      <polyline points="3 8 7 12 3 16" />
+      <line x1="21" y1="6" x2="11" y2="6" />
+      <line x1="21" y1="12" x2="11" y2="12" />
+      <line x1="21" y1="18" x2="11" y2="18" />
+    </>
+  ),
+  outdent: (
+    <>
+      <polyline points="7 8 3 12 7 16" />
+      <line x1="21" y1="6" x2="11" y2="6" />
+      <line x1="21" y1="12" x2="11" y2="12" />
+      <line x1="21" y1="18" x2="11" y2="18" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />

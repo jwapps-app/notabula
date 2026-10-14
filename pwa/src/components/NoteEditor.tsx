@@ -674,6 +674,26 @@ export default function NoteEditor({
               isActive={() => editor.isActive('taskList')}
               onRun={() => editor.chain().focus().toggleTaskList().run()}
             />
+            {/* Nesting on a phone: no Tab key there, so the toolbar has to
+                offer it. Works on whichever list item the caret is in. */}
+            <ToolbarButton
+              label={<Icon name="indent" size={16} />}
+              title="Indent (nest under the item above)"
+              isActive={() => false}
+              onRun={() =>
+                editor.chain().focus().sinkListItem('listItem').run() ||
+                editor.chain().focus().sinkListItem('taskItem').run()
+              }
+            />
+            <ToolbarButton
+              label={<Icon name="outdent" size={16} />}
+              title="Outdent"
+              isActive={() => false}
+              onRun={() =>
+                editor.chain().focus().liftListItem('listItem').run() ||
+                editor.chain().focus().liftListItem('taskItem').run()
+              }
+            />
             <ToolbarButton
               label="❝"
               title="Block quote"
