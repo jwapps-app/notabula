@@ -644,6 +644,28 @@ export default function NoteEditor({
               isActive={() => editor.isActive('highlight')}
               onRun={() => editor.chain().focus().toggleHighlight().run()}
             />
+            {/* Back to plain text: strips bold/italic/underline/strike/
+                highlight/code from the selection (and from what you type
+                next). Links are deliberately kept — un-linking an attached
+                file would orphan it — and block type (lists, headings) has
+                its own buttons, same as the iOS eraser. */}
+            <ToolbarButton
+              label={<Icon name="eraser" size={16} />}
+              title="Clear formatting"
+              isActive={() => false}
+              onRun={() =>
+                editor
+                  .chain()
+                  .focus()
+                  .unsetBold()
+                  .unsetItalic()
+                  .unsetUnderline()
+                  .unsetStrike()
+                  .unsetHighlight()
+                  .unsetCode()
+                  .run()
+              }
+            />
             <ToolbarButton
               label="H1"
               title="Heading"

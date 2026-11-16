@@ -115,6 +115,12 @@ const PATHS: Record<string, ReactElement> = {
       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
     </>
   ),
+  eraser: (
+    <>
+      <path d="M20 20H9l-5-5a2 2 0 0 1 0-2.8l8.6-8.6a2 2 0 0 1 2.8 0l5 5a2 2 0 0 1 0 2.8L13 20" />
+      <line x1="8.5" y1="8.5" x2="15.5" y2="15.5" />
+    </>
+  ),
   compose: (
     <>
       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
