@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor } from '@tiptap/react'
+import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -13,6 +14,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { HashtagHighlight } from '../lib/hashtagHighlight'
 import { Linkify } from '../lib/linkify'
 import { Link, isSafeHref } from '../lib/link'
+import { downscaleImage } from '../lib/imageResize'
 import { setPreviewsEnabled } from '../lib/linkPreview'
 import { PdfEmbed } from '../lib/pdfEmbed'
 import { ApiError, OfflineError, api } from '../lib/api'
@@ -52,13 +54,28 @@ interface TagSuggestState {
   top: number
 }
 
-/** Upload image files and insert them at the current selection. */
+/** Upload image files and insert them at the current selection. Photos are
+ * shrunk first (toolbar button, paste and drop alike) — see imageResize. */
 async function uploadAndInsert(view: EditorView, files: File[]): Promise<void> {
   for (const file of files) {
     try {
-      const uploaded = await api.uploadAttachment(file)
-      const node = view.state.schema.nodes.image.create({ src: uploaded.url })
-      view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView())
+      const uploaded = await api.uploadAttachment(await downscaleImage(file))
+      const { schema } = view.state
+      const node = schema.nodes.image.create({ src: uploaded.url })
+      const tr = view.state.tr.replaceSelectionWith(node)
+      // With nothing typeable after it (end of the note, or another image
+      // next), ProseMirror leaves the new image itself selected — so the
+      // next photo of a multi-pick, or the next keystroke, would REPLACE
+      // it. Put the caret on a line after it instead.
+      const sel = tr.selection
+      if (sel instanceof NodeSelection && sel.node.type === node.type) {
+        const after = sel.to
+        if (!tr.doc.resolve(after).nodeAfter?.isTextblock) {
+          tr.insert(after, schema.nodes.paragraph.create())
+        }
+        tr.setSelection(TextSelection.create(tr.doc, after + 1))
+      }
+      view.dispatch(tr.scrollIntoView())
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Image upload failed')
     }
