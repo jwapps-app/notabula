@@ -15,6 +15,7 @@ import { HashtagHighlight } from '../lib/hashtagHighlight'
 import { Linkify } from '../lib/linkify'
 import { Link, isSafeHref } from '../lib/link'
 import { downscaleImage } from '../lib/imageResize'
+import { outOfListsThen, toggleListKind } from '../lib/listCommands'
 import { setPreviewsEnabled } from '../lib/linkPreview'
 import { PdfEmbed } from '../lib/pdfEmbed'
 import { ApiError, OfflineError, api } from '../lib/api'
@@ -687,31 +688,31 @@ export default function NoteEditor({
               label="H1"
               title="Heading"
               isActive={() => editor.isActive('heading', { level: 1 })}
-              onRun={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+              onRun={() => outOfListsThen(editor, (c) => c.toggleHeading({ level: 1 }))}
             />
             <ToolbarButton
               label="H2"
               title="Subheading"
               isActive={() => editor.isActive('heading', { level: 2 })}
-              onRun={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+              onRun={() => outOfListsThen(editor, (c) => c.toggleHeading({ level: 2 }))}
             />
             <ToolbarButton
               label="•"
               title="Bulleted list"
               isActive={() => editor.isActive('bulletList')}
-              onRun={() => editor.chain().focus().toggleBulletList().run()}
+              onRun={() => toggleListKind(editor, 'bulletList')}
             />
             <ToolbarButton
               label="1."
               title="Numbered list"
               isActive={() => editor.isActive('orderedList')}
-              onRun={() => editor.chain().focus().toggleOrderedList().run()}
+              onRun={() => toggleListKind(editor, 'orderedList')}
             />
             <ToolbarButton
               label={<Icon name="check-square" size={16} />}
               title="Checklist"
               isActive={() => editor.isActive('taskList')}
-              onRun={() => editor.chain().focus().toggleTaskList().run()}
+              onRun={() => toggleListKind(editor, 'taskList')}
             />
             {/* Nesting on a phone: no Tab key there, so the toolbar has to
                 offer it. Works on whichever list item the caret is in. */}
@@ -737,7 +738,7 @@ export default function NoteEditor({
               label="❝"
               title="Block quote"
               isActive={() => editor.isActive('blockquote')}
-              onRun={() => editor.chain().focus().toggleBlockquote().run()}
+              onRun={() => outOfListsThen(editor, (c) => c.toggleBlockquote())}
             />
             <ToolbarButton
               label={<Icon name="checks-down" size={16} />}
